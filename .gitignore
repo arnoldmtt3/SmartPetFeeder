@@ -1,0 +1,16 @@
+node_modules/
+data/
+*.log
+tmp/
+.vscode-server/
+.cache/
+.config/
+.local/
+.npm/
+.ssh/
+__pycache__/
+*.pyc
+*.db
+*.tar.gz
+.env
+smartpetfeeder.log

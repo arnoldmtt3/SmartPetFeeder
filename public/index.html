@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alimentador PUCP</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', sans-serif; background: #f0f4f8; color: #1a202c; padding: 24px; }
+h1 { text-align: center; font-size: 1.6em; font-weight: 700; color: #2d3748; margin-bottom: 6px; }
+.subtitle { text-align: center; color: #718096; font-size: 0.9em; margin-bottom: 24px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; max-width: 1400px; margin: 0 auto; }
+.card { background: #fff; border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; transition: box-shadow 0.2s; }
+.card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.card.wide { grid-column: 1 / -1; }
+h2 { font-size: 1em; font-weight: 600; color: #4a5568; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #e2e8f0; display: flex; align-items: center; gap: 8px; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+label { font-size: 0.85em; color: #718096; font-weight: 500; min-width: 70px; }
+select, input[type=number], input[type=time] { background: #f7fafc; color: #2d3748; border: 1px solid #e2e8f0; padding: 7px 12px; border-radius: 8px; font-size: 0.85em; font-family: inherit; outline: none; transition: border 0.2s; }
+select:focus, input:focus { border-color: #4299e1; box-shadow: 0 0 0 3px rgba(66,153,225,0.15); }
+button { background: #4299e1; color: #fff; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 0.85em; font-weight: 500; font-family: inherit; transition: all 0.2s; }
+button:hover { background: #3182ce; transform: translateY(-1px); box-shadow: 0 2px 6px rgba(66,153,225,0.3); }
+button:active { transform: translateY(0); }
+button:disabled { background: #cbd5e0; cursor: not-allowed; transform: none; box-shadow: none; }
+button.green { background: #48bb78; }
+button.green:hover { background: #38a169; box-shadow: 0 2px 6px rgba(72,187,120,0.3); }
+button.red { background: #fc8181; }
+button.red:hover { background: #f56565; box-shadow: 0 2px 6px rgba(252,129,129,0.3); }
+button.orange { background: #ed8936; }
+button.orange:hover { background: #dd6b20; box-shadow: 0 2px 6px rgba(237,137,54,0.3); }
+button.sm { padding: 5px 12px; font-size: 0.8em; }
+.badge { display: inline-flex; align-items: center; padding: 3px 12px; border-radius: 20px; font-size: 0.78em; font-weight: 600; gap: 4px; }
+.badge.open { background: #c6f6d5; color: #276749; }
+.badge.closed { background: #fed7d7; color: #9b2c2c; }
+.badge.running { background: #fefcbf; color: #975a16; }
+.badge.idle { background: #edf2f7; color: #4a5568; }
+.badge.success { background: #c6f6d5; color: #276749; }
+.badge.on { background: #c6f6d5; color: #276749; }
+.badge.off { background: #edf2f7; color: #4a5568; }
+.status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 4px 0; }
+.status-item { background: #f7fafc; border-radius: 10px; padding: 10px 12px; text-align: center; }
+.status-item .num { font-size: 1.5em; font-weight: 700; color: #2d3748; line-height: 1.3; }
+.status-item .lbl { font-size: 0.75em; color: #718096; font-weight: 500; }
+.progress { height: 8px; background: #edf2f7; border-radius: 4px; overflow: hidden; margin: 8px 0; }
+.progress-bar { height: 100%; background: linear-gradient(90deg, #4299e1, #48bb78); border-radius: 4px; transition: width 0.5s ease; }
+.video-container { position: relative; width: 100%; max-width: 640px; margin: 0 auto; border-radius: 10px; overflow: hidden; border: 2px solid #e2e8f0; }
+.video-container img { width: 100%; display: block; background: #edf2f7; }
+.schedule-item { display: flex; align-items: center; justify-content: space-between; background: #f7fafc; padding: 8px 14px; border-radius: 10px; margin: 6px 0; border: 1px solid #e2e8f0; }
+.schedule-item .info { display: flex; gap: 14px; align-items: center; font-size: 0.88em; }
+.schedule-item .info strong { color: #2d3748; }
+.log-table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+.log-table th { text-align: left; padding: 8px 10px; color: #718096; font-weight: 600; border-bottom: 2px solid #e2e8f0; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.03em; }
+.log-table td { padding: 8px 10px; border-bottom: 1px solid #f0f4f8; color: #4a5568; }
+.log-table tr:hover td { background: #f7fafc; }
+.log-table .empty { text-align: center; color: #a0aec0; padding: 24px; font-style: italic; }
+.btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+.toast { position: fixed; bottom: 24px; right: 24px; background: #48bb78; color: #fff; padding: 12px 24px; border-radius: 10px; display: none; animation: slideIn 0.3s ease; z-index: 999; font-size: 0.9em; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+.toast.error { background: #fc8181; }
+@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.mt-10 { margin-top: 10px; }
+.flex { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.text-muted { color: #a0aec0; font-size: 0.82em; }
+.icon { font-size: 1.1em; }
+.quick-bar { max-width: 1400px; margin: 0 auto 16px; background: #fff; border: 2px solid #48bb78; border-radius: 16px; padding: 14px 20px; display: flex; align-items: center; gap: 14px; box-shadow: 0 2px 8px rgba(72,187,120,0.15); }
+.quick-btn { background: linear-gradient(135deg, #48bb78, #38a169); color: #fff; border: none; padding: 12px 28px; border-radius: 12px; cursor: pointer; font-size: 1em; font-weight: 600; font-family: inherit; display: flex; align-items: center; gap: 8px; transition: all 0.2s; box-shadow: 0 2px 6px rgba(72,187,120,0.3); }
+.quick-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(72,187,120,0.4); }
+.quick-btn:disabled { background: #cbd5e0; cursor: not-allowed; transform: none; box-shadow: none; }
+.quick-icon { font-size: 1.3em; }
+.quick-info { color: #718096; font-size: 0.88em; }
+.quick-edit { color: #4299e1; font-size: 0.82em; cursor: pointer; text-decoration: underline; margin-left: auto; }
+.quick-edit:hover { color: #3182ce; }
+.param-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.param-item { display: flex; flex-direction: column; background: #f7fafc; padding: 6px 10px; border-radius: 8px; }
+.param-item label { font-size: 0.75em; color: #718096; font-weight: 500; }
+.param-item input { background: #fff; border: 1px solid #e2e8f0; padding: 4px 8px; border-radius: 6px; font-size: 0.85em; font-family: inherit; margin-top: 2px; }
+@media (max-width: 640px) { body { padding: 12px; } .grid { grid-template-columns: 1fr; } .quick-bar { flex-wrap: wrap; } }
+</style>
+</head>
+<body>
+
+<h1>&#127858; Alimentador PUCP</h1>
+<p class="subtitle">Control y monitoreo del alimentador autom&aacute;tico para mascotas</p>
+
+<div class="quick-bar" id="quickBar" style="display:none;">
+  <button class="quick-btn" id="quickFeedBtn" onclick="quickFeed()">
+    <span class="quick-icon">&#127858;</span>
+    <span class="quick-text" id="quickFeedText">Alimentar</span>
+  </button>
+  <span class="quick-info" id="quickFeedInfo"></span>
+  <span class="quick-edit" onclick="document.getElementById('feedPortions').scrollIntoView({behavior:'smooth'})">Cambiar</span>
+</div>
+
+<div class="grid">
+
+  <!-- Estado General -->
+  <div class="card">
+    <h2><span class="icon">&#128200;</span> Estado General</h2>
+    <div class="status-grid">
+      <div class="status-item">
+        <div class="num"><span id="seqStatusBadge" class="badge idle">Inactivo</span></div>
+        <div class="lbl">Secuencia</div>
+      </div>
+      <div class="status-item">
+        <div class="num" id="seqProgress" style="font-size:1em;">0%</div>
+        <div class="lbl">Progreso</div>
+      </div>
+      <div class="status-item">
+        <div class="num"><span id="doorUpperBadge" class="badge closed">Cerrada</span></div>
+        <div class="lbl">Comp. Superior</div>
+      </div>
+      <div class="status-item">
+        <div class="num"><span id="doorLowerBadge" class="badge closed">Cerrada</span></div>
+        <div class="lbl">Comp. Inferior</div>
+      </div>
+      <div class="status-item">
+        <div class="num"><span id="humidifierBadge" class="badge off">Apagado</span></div>
+        <div class="lbl">Humidificador</div>
+      </div>
+    </div>
+    <div class="progress"><div id="seqProgressBar" class="progress-bar" style="width:0%"></div></div>
+    <div id="seqStepName" style="font-size:0.8em;color:#718096;margin-top:6px;min-height:20px;"></div>
+  </div>
+
+  <!-- Compuertas -->
+  <div class="card">
+    <h2><span class="icon">&#128682;</span> Compuertas</h2>
+    <div class="row">
+      <label>Superior:</label>
+      <div class="btn-group">
+        <button class="green sm" onclick="controlDoor('upper','open')">&#128994; Abrir</button>
+        <button class="red sm" onclick="controlDoor('upper','close')">&#128308; Cerrar</button>
+      </div>
+      <span id="upperStatus" class="badge closed">Cerrada</span>
+    </div>
+    <div class="row">
+      <label>Inferior:</label>
+      <div class="btn-group">
+        <button class="green sm" onclick="controlDoor('lower','open')">&#128994; Abrir</button>
+        <button class="red sm" onclick="controlDoor('lower','close')">&#128308; Cerrar</button>
+      </div>
+      <span id="lowerStatus" class="badge closed">Cerrada</span>
+    </div>
+  </div>
+
+  <!-- Dosificador -->
+  <div class="card">
+    <h2><span class="icon">&#9881;</span> Dosificador</h2>
+    <div class="row">
+      <label>Gramos:</label>
+      <select id="dosifierGrams">
+        <option value="9">9g (1 vuelta)</option>
+        <option value="18" selected>18g (2 vueltas)</option>
+        <option value="27">27g (3 vueltas)</option>
+        <option value="36">36g (4 vueltas)</option>
+        <option value="45">45g (5 vueltas)</option>
+        <option value="54">54g (6 vueltas)</option>
+        <option value="63">63g (7 vueltas)</option>
+        <option value="72">72g (8 vueltas)</option>
+      </select>
+      <button class="orange sm" onclick="testDosifier()">Dosificar</button>
+    </div>
+  </div>
+
+  <!-- Secuencia Completa -->
+  <div class="card">
+    <h2><span class="icon">&#127860;</span> Alimentaci&oacute;n</h2>
+    <div class="row">
+      <label>Porci&oacute;n:</label>
+      <select id="feedPortions">
+        <option value="9">9g</option>
+        <option value="18" selected>18g</option>
+        <option value="27">27g</option>
+        <option value="36">36g</option>
+        <option value="45">45g</option>
+        <option value="54">54g</option>
+        <option value="63">63g</option>
+        <option value="72">72g</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Humidificar:</label>
+      <input type="checkbox" id="feedHumidify" style="width:18px;height:18px;accent-color:#48bb78;">
+    </div>
+    <button class="green" onclick="startFeed()" id="feedBtn" style="width:100%;padding:10px;font-size:0.95em;">&#9654; Iniciar Secuencia</button>
+  </div>
+
+  <!-- Humidificador -->
+  <div class="card">
+    <h2><span class="icon">&#128167;</span> Humidificador</h2>
+    <div class="row">
+      <button class="green sm" onclick="toggleHumidifier(true)">&#128994; Encender</button>
+      <button class="red sm" onclick="toggleHumidifier(false)">&#128308; Apagar</button>
+      <span id="humidifierStatus" class="badge off">Apagado</span>
+    </div>
+  </div>
+
+  <!-- Faja Transportadora -->
+  <div class="card">
+    <h2><span class="icon">&#128666;</span> Faja Transportadora</h2>
+    <div class="row">
+      <label>M1:</label>
+      <input type="range" id="beltM1" min="-255" max="255" value="0" style="flex:1;accent-color:#4299e1;">
+      <span id="beltM1Val" style="font-size:0.85em;font-weight:600;min-width:40px;color:#4a5568;">0</span>
+    </div>
+    <div class="row">
+      <label>M2:</label>
+      <input type="range" id="beltM2" min="-255" max="255" value="0" style="flex:1;accent-color:#48bb78;">
+      <span id="beltM2Val" style="font-size:0.85em;font-weight:600;min-width:40px;color:#4a5568;">0</span>
+    </div>
+    <div class="row">
+      <label>Duraci&oacute;n:</label>
+      <select id="beltDuration" style="min-width:80px;">
+        <option value="0">Manual</option>
+        <option value="1">1s</option>
+        <option value="2">2s</option>
+        <option value="3">3s</option>
+        <option value="5" selected>5s</option>
+        <option value="10">10s</option>
+      </select>
+    </div>
+    <div class="row">
+      <div class="btn-group">
+        <button class="green sm" onclick="beltMove()">&#9654; Mover</button>
+        <button class="red sm" onclick="beltStop()">&#9632; Stop</button>
+        <button class="blue sm" onclick="beltForwardPreset()">Adelante</button>
+        <button class="orange sm" onclick="beltBackwardPreset()">Atr&aacute;s</button>
+      </div>
+    </div>
+    <div class="row" style="justify-content:space-between;font-size:0.82em;color:#718096;">
+      <span>Encoder M1: <strong id="encM1">0</strong></span>
+      <span>Encoder M2: <strong id="encM2">0</strong></span>
+      <button class="sm" onclick="beltResetEncoders()" style="font-size:0.8em;">Reset</button>
+    </div>
+  </div>
+
+  <!-- Horarios -->
+  <div class="card">
+    <h2><span class="icon">&#128197;</span> Horarios</h2>
+    <div class="row">
+      <label>Hora:</label>
+      <input type="time" id="schedTime" value="08:00">
+    </div>
+    <div class="row">
+      <label>Gramos:</label>
+      <select id="schedPortions">
+        <option value="9">9g</option>
+        <option value="18" selected>18g</option>
+        <option value="27">27g</option>
+        <option value="36">36g</option>
+        <option value="45">45g</option>
+        <option value="54">54g</option>
+        <option value="63">63g</option>
+        <option value="72">72g</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Humidificar:</label>
+      <input type="checkbox" id="schedHumidify" style="width:18px;height:18px;accent-color:#48bb78;">
+    </div>
+    <button class="blue sm" onclick="addSchedule()" style="width:100%;padding:8px;">+ Agregar Horario</button>
+    <div id="scheduleList" class="mt-10"></div>
+  </div>
+
+  <!-- Video -->
+  <div class="card wide">
+    <h2><span class="icon">&#128249;</span> Video en Vivo</h2>
+    <div class="video-container">
+      <img src="/video_feed" alt="Video feed" id="videoFeed">
+    </div>
+  </div>
+
+  <!-- Faja Avanzada -->
+  <div class="card">
+    <h2><span class="icon">&#9881;</span> Faja Avanzada</h2>
+    <div class="row">
+      <span>Estado: <span id="beltBusyBadge" class="badge idle">Libre</span></span>
+    </div>
+    <div class="btn-group">
+      <button class="orange sm" onclick="beltSetup()" id="beltSetupBtn">&#9881; Seteo Inicial</button>
+      <button class="green sm" onclick="beltCycle()" id="beltCycleBtn">&#128260; Ciclo Completo</button>
+      <button class="red sm" onclick="beltStop()">&#9632; Stop</button>
+    </div>
+  </div>
+
+  <!-- Parametros Faja -->
+  <div class="card wide">
+    <h2><span class="icon">&#128295;</span> Parametros Faja <button class="sm" onclick="loadBeltParams()" style="margin-left:auto;">Recargar</button></h2>
+    <div id="beltParamsContainer" class="param-grid" style="margin-bottom:10px;"></div>
+    <button class="green sm" onclick="saveBeltParams()">Guardar Parametros</button>
+  </div>
+
+  <!-- Historial -->
+  <div class="card wide">
+    <h2><span class="icon">&#128196;</span> Historial de Alimentaci&oacute;n</h2>
+    <div class="flex" style="justify-content:space-between;margin-bottom:8px;">
+      <span class="text-muted" id="logCount">0 registros</span>
+      <button class="red sm" onclick="clearLog()">Limpiar historial</button>
+    </div>
+    <table class="log-table">
+      <thead><tr><th>Fecha</th><th>Hora</th><th>Porci&oacute;n</th><th>Humidificar</th><th>Estado</th></tr></thead>
+      <tbody id="logBody"><tr><td class="empty" colspan="5">A&uacute;n no hay registros de alimentaci&oacute;n</td></tr></tbody>
+    </table>
+  </div>
+
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const API = '';
+const POLL_INTERVAL = 2000;
+const LOG_KEY = 'feeder_log';
+const LAST_FEED_KEY = 'feeder_last_feed';
+
+// --- Toast ---
+function toast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (isError ? ' error' : '');
+  t.style.display = 'block';
+  clearTimeout(t._hide);
+  t._hide = setTimeout(() => t.style.display = 'none', 3500);
+}
+
+// --- API helper ---
+async function api(method, path, body) {
+  try {
+    const opts = { method, headers: {} };
+    if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
+    const r = await fetch(API + path, opts);
+    return await r.json();
+  } catch(e) {
+    toast('Error de conexi&oacute;n: ' + e.message, true);
+    return null;
+  }
+}
+
+// --- Feeding Log ---
+function getLog() {
+  try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch { return []; }
+}
+
+function saveLog(log) {
+  localStorage.setItem(LOG_KEY, JSON.stringify(log));
+}
+
+function addLogEntry(portions, humidify, success) {
+  const log = getLog();
+  const now = new Date();
+  const date = now.toLocaleDateString('es-PE', { year:'numeric', month:'2-digit', day:'2-digit' });
+  const time = now.toLocaleTimeString('es-PE', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  log.unshift({ date, time, portions: portions + 'g', humidify: humidify ? 'S&iacute;' : 'No', status: success ? 'Completada' : 'Fallida', ts: now.getTime() });
+  if (log.length > 100) log.length = 100;
+  saveLog(log);
+  renderLog();
+}
+
+function renderLog() {
+  const log = getLog();
+  const tbody = document.getElementById('logBody');
+  const count = document.getElementById('logCount');
+  count.textContent = log.length + ' registro' + (log.length !== 1 ? 's' : '');
+  if (log.length === 0) {
+    tbody.innerHTML = '<tr><td class="empty" colspan="5">A&uacute;n no hay registros de alimentaci&oacute;n</td></tr>';
+    return;
+  }
+  tbody.innerHTML = log.map(e => '<tr><td>' + e.date + '</td><td>' + e.time + '</td><td>' + e.portions + '</td><td>' + e.humidify + '</td><td><span class="badge ' + (e.status === 'Completada' ? 'success' : 'closed') + '">' + e.status + '</span></td></tr>').join('');
+}
+
+function clearLog() {
+  if (!confirm('Limpiar todo el historial?')) return;
+  saveLog([]);
+  renderLog();
+  toast('Historial limpiado');
+}
+
+// --- Compuertas ---
+async function controlDoor(which, action) {
+  const res = await api('POST', '/door/' + which, { action });
+  if (res && res.status === 'ok') toast('Compuerta ' + which + ' ' + (action === 'open' ? 'abierta' : 'cerrada'));
+  else if (res) toast(res.message || 'Error', true);
+  await pollStatus();
+}
+
+// --- Dosificador ---
+async function testDosifier() {
+  const grams = parseInt(document.getElementById('dosifierGrams').value);
+  const res = await api('POST', '/dosifier/test', { grams });
+  if (res && res.status === 'started') toast('Dosificando ' + grams + 'g...');
+  else if (res) toast(res.message || 'Error', true);
+}
+
+// --- Ultimos parametros ---
+function saveLastFeed(portions, humidify) {
+  const data = { portions, humidify, ts: Date.now() };
+  localStorage.setItem(LAST_FEED_KEY, JSON.stringify(data));
+  // Also save to server for the physical button
+  fetch('/api/last-feed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ portions, humidify }) }).catch(function(){});
+}
+
+function getLastFeed() {
+  try { return JSON.parse(localStorage.getItem(LAST_FEED_KEY) || 'null'); } catch { return null; }
+}
+
+function updateQuickBar() {
+  const last = getLastFeed();
+  const bar = document.getElementById('quickBar');
+  const text = document.getElementById('quickFeedText');
+  const info = document.getElementById('quickFeedInfo');
+  if (last) {
+    bar.style.display = 'flex';
+    text.textContent = 'Alimentar ' + last.portions + 'g' + (last.humidify ? ' con humidificación' : '');
+    info.innerHTML = last.humidify ? '&#128167; con humidificación' : 'sin humidificación';
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+async function quickFeed() {
+  const last = getLastFeed();
+  if (!last) return;
+  document.getElementById('quickFeedBtn').disabled = true;
+  _feedStartTime = Date.now();
+  _pendingPortions = last.portions;
+  _pendingHumidify = last.humidify;
+  const res = await api('POST', '/feed', { portions: last.portions, humidify: last.humidify });
+  if (res && res.status === 'started') {
+    toast('Secuencia iniciada: ' + last.portions + 'g');
+    document.getElementById('feedPortions').value = last.portions;
+    document.getElementById('feedHumidify').checked = last.humidify;
+  } else {
+    if (res) toast(res.message || 'Error', true);
+    document.getElementById('quickFeedBtn').disabled = false;
+  }
+}
+
+// --- Secuencia ---
+let _feedStartTime = 0;
+
+async function startFeed() {
+  const portions = parseInt(document.getElementById('feedPortions').value);
+  const humidify = document.getElementById('feedHumidify').checked;
+  saveLastFeed(portions, humidify);
+  updateQuickBar();
+  document.getElementById('feedBtn').disabled = true;
+  _feedStartTime = Date.now();
+  const res = await api('POST', '/feed', { portions, humidify });
+  if (res && res.status === 'started') {
+    toast('Secuencia iniciada: ' + portions + 'g');
+  } else if (res) {
+    toast(res.message || 'Error', true);
+    document.getElementById('feedBtn').disabled = false;
+  }
+}
+
+// --- Humidificador ---
+async function toggleHumidifier(on) {
+  const res = await api('POST', '/humidify', { on });
+  if (res) toast('Humidificador ' + (on ? 'encendido' : 'apagado'));
+  await pollStatus();
+}
+
+// --- Faja Transportadora ---
+document.addEventListener('input', function(e) {
+  if (e.target.id === 'beltM1') document.getElementById('beltM1Val').textContent = e.target.value;
+  if (e.target.id === 'beltM2') document.getElementById('beltM2Val').textContent = e.target.value;
+});
+
+async function beltMove() {
+  const m1 = parseInt(document.getElementById('beltM1').value);
+  const m2 = parseInt(document.getElementById('beltM2').value);
+  const duration = parseFloat(document.getElementById('beltDuration').value);
+  const res = await api('POST', '/faja/manual', { m1, m2, duration });
+  if (res && res.status === 'ok') toast('Faja: M1=' + m1 + ' M2=' + m2 + (duration ? ' (' + duration + 's)' : ''));
+  else toast('Error al mover faja', true);
+}
+
+async function beltStop() {
+  const res = await api('POST', '/faja/stop');
+  if (res && res.status === 'ok') toast('Faja detenida');
+  document.getElementById('beltM1').value = 0;
+  document.getElementById('beltM2').value = 0;
+  document.getElementById('beltM1Val').textContent = '0';
+  document.getElementById('beltM2Val').textContent = '0';
+}
+
+async function beltForwardPreset() {
+  document.getElementById('beltM1').value = 200;
+  document.getElementById('beltM2').value = 200;
+  document.getElementById('beltM1Val').textContent = '200';
+  document.getElementById('beltM2Val').textContent = '200';
+  await beltMove();
+}
+
+async function beltBackwardPreset() {
+  document.getElementById('beltM1').value = -200;
+  document.getElementById('beltM2').value = -200;
+  document.getElementById('beltM1Val').textContent = '-200';
+  document.getElementById('beltM2Val').textContent = '-200';
+  await beltMove();
+}
+
+async function beltResetEncoders() {
+  const res = await api('POST', '/faja/reset-encoders');
+  if (res) toast('Encoders reseteados');
+}
+
+// --- Faja Avanzada ---
+let _beltWasBusy = false;
+
+async function beltSetup() {
+  const btn = document.getElementById('beltSetupBtn');
+  btn.disabled = true;
+  const res = await api('POST', '/faja/setup');
+  if (res) toast(res.message || 'Setup iniciado');
+  setTimeout(() => btn.disabled = false, 1000);
+}
+
+async function beltCycle() {
+  const btn = document.getElementById('beltCycleBtn');
+  btn.disabled = true;
+  const res = await api('POST', '/faja/cycle');
+  if (res) toast(res.message || 'Ciclo iniciado');
+  setTimeout(() => btn.disabled = false, 1000);
+}
+
+async function pollBeltBusy() {
+  const res = await api('GET', '/faja/busy');
+  if (!res) return;
+  const badge = document.getElementById('beltBusyBadge');
+  if (res.busy) {
+    badge.textContent = 'Ocupado';
+    badge.className = 'badge running';
+  } else {
+    badge.textContent = 'Libre';
+    badge.className = 'badge idle';
+  }
+}
+
+async function loadBeltParams() {
+  const res = await api('GET', '/faja/params');
+  if (!res) return;
+  const container = document.getElementById('beltParamsContainer');
+  container.innerHTML = Object.entries(res).map(([k, v]) =>
+    '<div class="param-item"><label>' + k + '</label><input type="number" id="param_' + k + '" value="' + v + '"></div>'
+  ).join('');
+}
+
+async function saveBeltParams() {
+  const params = {};
+  document.querySelectorAll('#beltParamsContainer input').forEach(el => {
+    const key = el.id.replace('param_', '');
+    params[key] = parseInt(el.value);
+  });
+  const res = await api('POST', '/faja/params', params);
+  if (res && res.status === 'ok') toast('Parametros guardados: ' + Object.keys(res.updated).length + ' actualizados');
+  else toast('Error al guardar parametros', true);
+}
+
+async function pollBeltStatus() {
+  const res = await api('GET', '/faja/status');
+  if (res) {
+    document.getElementById('encM1').textContent = res.encoder_m1 || 0;
+    document.getElementById('encM2').textContent = res.encoder_m2 || 0;
+  }
+}
+
+// --- Horarios ---
+async function loadSchedules() {
+  const res = await api('GET', '/schedules');
+  if (!res) return;
+  const el = document.getElementById('scheduleList');
+  if (res.length === 0) { el.innerHTML = '<div class="text-muted" style="margin-top:8px;">Sin horarios programados</div>'; return; }
+  el.innerHTML = res.map(s => {
+    const h = s.hour.toString().padStart(2,'0') + ':' + s.minute.toString().padStart(2,'0');
+    return '<div class="schedule-item"><div class="info"><strong>' + h + '</strong><span>' + s.portions + 'g</span>' + (s.humidify ? '<span class="badge open" style="font-size:0.7em">Hum</span>' : '') + '</div><button class="red sm" onclick="deleteSchedule(\'' + s.id + '\')">Eliminar</button></div>';
+  }).join('');
+}
+
+async function addSchedule() {
+  const time = document.getElementById('schedTime').value;
+  if (!time) { toast('Selecciona una hora', true); return; }
+  const portions = parseInt(document.getElementById('schedPortions').value);
+  const humidify = document.getElementById('schedHumidify').checked;
+  const res = await api('POST', '/schedules', { time, portions, humidify });
+  if (res && res.id) { toast('Horario agregado'); await loadSchedules();
+loadBeltParams(); }
+  else toast('Error al agregar horario', true);
+}
+
+async function deleteSchedule(id) {
+  const res = await api('DELETE', '/schedules/' + id);
+  if (res) { toast('Horario eliminado'); await loadSchedules();
+loadBeltParams(); }
+}
+
+// --- Detectar fin de secuencia ---
+let _wasRunning = false;
+let _loggedSequence = false;
+let _pendingPortions = 0;
+let _pendingHumidify = false;
+
+// --- Polling de estado ---
+async function pollStatus() {
+  const seq = await api('GET', '/sequence_status');
+  if (!seq) return;
+
+  const badge = document.getElementById('seqStatusBadge');
+  const bar = document.getElementById('seqProgressBar');
+  const pct = document.getElementById('seqProgress');
+  const stepName = document.getElementById('seqStepName');
+
+  if (seq.is_running) {
+    if (!_wasRunning) {
+      _wasRunning = true;
+      _loggedSequence = false;
+      _pendingPortions = parseInt(document.getElementById('feedPortions').value);
+      _pendingHumidify = document.getElementById('feedHumidify').checked;
+    }
+    badge.textContent = 'En progreso';
+    badge.className = 'badge running';
+    bar.style.width = seq.progress_pct + '%';
+    pct.textContent = seq.progress_pct + '%';
+    stepName.textContent = seq.step_name || 'Ejecutando...';
+    document.getElementById('feedBtn').disabled = true;
+    document.getElementById('quickFeedBtn').disabled = true;
+  } else {
+    const wasRunning = _wasRunning;
+    _wasRunning = false;
+    badge.textContent = seq.success ? 'Completada' : 'Inactivo';
+    badge.className = seq.success ? 'badge success' : 'badge idle';
+    bar.style.width = seq.success ? '100%' : '0%';
+    pct.textContent = seq.success ? '100%' : '0%';
+    stepName.textContent = '';
+    document.getElementById('feedBtn').disabled = false;
+    document.getElementById('quickFeedBtn').disabled = false;
+
+    if (wasRunning && _pendingPortions > 0 && !_loggedSequence) {
+      _loggedSequence = true;
+      addLogEntry(_pendingPortions, _pendingHumidify, seq.success);
+      if (seq.success) toast('&#10004; Alimentaci&oacute;n completada: ' + _pendingPortions + 'g');
+      else toast('&#10060; La secuencia fall&oacute;', true);
+      _pendingPortions = 0;
+    }
+  }
+
+  // Puertas
+  const up = await api('GET', '/door/upper');
+  if (up) {
+    const upd = ['doorUpperBadge', 'upperStatus'];
+    upd.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.textContent = up.open ? 'Abierta' : 'Cerrada'; el.className = 'badge ' + (up.open ? 'open' : 'closed'); }
+    });
+  }
+
+  const down = await api('GET', '/door/lower');
+  if (down) {
+    const dnd = ['doorLowerBadge', 'lowerStatus'];
+    dnd.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.textContent = down.open ? 'Abierta' : 'Cerrada'; el.className = 'badge ' + (down.open ? 'open' : 'closed'); }
+    });
+  }
+
+  // Humidificador
+  const hum = await api('GET', '/humidify');
+  if (hum) {
+    ['humidifierBadge', 'humidifierStatus'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.textContent = hum.humidifier_on ? 'Encendido' : 'Apagado'; el.className = 'badge ' + (hum.humidifier_on ? 'on' : 'off'); }
+    });
+  }
+}
+
+// --- Inicio ---
+renderLog();
+updateQuickBar();
+pollStatus();
+pollBeltStatus();
+setInterval(pollStatus, POLL_INTERVAL);
+setInterval(pollBeltStatus, 3000);
+setInterval(pollBeltBusy, 2000);
+setInterval(loadSchedules, 10000);
+loadSchedules();
+loadBeltParams();
+</script>
+</body>
+</html>
