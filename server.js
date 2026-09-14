@@ -396,33 +396,8 @@ app.get('/sequence_status', (req, res) => res.json({
   progress_pct: state.sequence_progress_pct,
 }));
 
-// Video feed - genera imagen de prueba cuando no hay cámara
-const { execSync } = require('child_process');
-
-app.get('/video_feed', async (req, res) => {
-  try {
-    // Consultar estado de presencia
-    const presence = await new Promise((resolve) => {
-      http.get('http://127.0.0.1:5001/status', (r) => {
-        let d = '';
-        r.on('data', (c) => { d += c; });
-        r.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(null); } });
-      }).on('error', () => resolve(null));
-    });
-
-    // Generar imagen con script Python separado
-    const pythonScript = path.join(__dirname, 'generate_video.py');
-    const result = execSync(`echo '${JSON.stringify(presence || {})}' | python3 ${pythonScript}`, {
-      timeout: 10000,
-      maxBuffer: 1024 * 1024
-    });
-
-    res.set('Content-Type', 'image/jpeg');
-    res.send(result);
-  } catch (e) {
-    res.status(503).send('Error generando video');
-  }
-});
+// Video
+app.get('/video_feed', (req, res) => res.status(503).send('Camara no conectada'));
 
 // Last feed
 app.get('/api/last-feed', (req, res) => {

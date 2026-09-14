@@ -297,10 +297,6 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
     <div class="video-container">
       <img src="/video_feed" alt="Video feed" id="videoFeed" style="background:#2d3748;">
     </div>
-    <div class="row mt-10" style="justify-content:center;">
-      <button class="sm" onclick="refreshVideo()">Actualizar</button>
-      <span class="text-muted" id="videoStatus">Auto-refresh: 2s</span>
-    </div>
   </div>
 
   <!-- Faja Avanzada -->
@@ -759,21 +755,6 @@ async function pollStatus() {
   }
 }
 
-// --- Video Feed ---
-let _videoRefreshInterval = null;
-
-function refreshVideo() {
-  const img = document.getElementById('videoFeed');
-  if (img) {
-    img.src = '/video_feed?t=' + Date.now();
-  }
-}
-
-function startVideoRefresh() {
-  if (_videoRefreshInterval) clearInterval(_videoRefreshInterval);
-  _videoRefreshInterval = setInterval(refreshVideo, 2000);
-}
-
 // --- Inicio ---
 loadFeedLog();
 loadLastFeedFromServer();
@@ -781,7 +762,6 @@ updateQuickBar();
 pollStatus();
 pollBeltStatus();
 pollPresence();
-startVideoRefresh();
 setInterval(pollStatus, POLL_INTERVAL);
 setInterval(pollBeltStatus, 3000);
 setInterval(pollBeltBusy, 2000);
