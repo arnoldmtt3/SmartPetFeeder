@@ -8,14 +8,14 @@ Modo TEST: simula detección sin cámara física.
 import cv2
 import time
 import threading
-import random
+import numpy as np
 from datetime import datetime
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 
 app = Flask(__name__)
 
 # Configuración
-CAMERA_INDEX = 0
+DEFAULT_CAMERA_INDEX = 0
 CHECK_INTERVAL = 2  # segundos entre cada verificación
 MOTION_THRESHOLD = 500  # píxeles mínimos para considerar movimiento
 DEFAULT_PRESENCE_THRESHOLD = 10  # segundos de presencia confirmada
@@ -24,11 +24,15 @@ DEFAULT_PRESENCE_THRESHOLD = 10  # segundos de presencia confirmada
 class DetectionState:
     def __init__(self):
         self.camera_connected = False
+        self.video_source = DEFAULT_CAMERA_INDEX  # int (USB) o str (URL stream)
+        self.source_label = 'raspberry'
         self.motion_detected = False
+        self.motion_pixels = 0
         self.presence_seconds = 0
         self.presence_confirmed = False
         self.presence_threshold = DEFAULT_PRESENCE_THRESHOLD
         self.last_detection = None
+        self.last_photo_result = None
         self.monitoring = False
         self.cap = None
         self.prev_frame = None
@@ -41,17 +45,35 @@ class DetectionState:
 state = DetectionState()
 
 
-def init_camera():
-    """Inicializa la cámara USB."""
+def parse_source(src):
+    """Convierte '0'->0, URLs se dejan como string."""
+    if src is None:
+        return DEFAULT_CAMERA_INDEX
+    s = str(src).strip()
+    if s.isdigit():
+        return int(s)
+    return s
+
+
+def init_camera(source=None):
+    """Inicializa la fuente de video (índice USB o URL de stream)."""
+    if source is not None:
+        state.video_source = parse_source(source)
     try:
-        state.cap = cv2.VideoCapture(CAMERA_INDEX)
+        if state.cap is not None:
+            try:
+                state.cap.release()
+            except Exception:
+                pass
+            state.cap = None
+        state.cap = cv2.VideoCapture(state.video_source)
         if state.cap.isOpened():
             state.camera_connected = True
-            print(f"[CAMARA] Conectada en /dev/video{CAMERA_INDEX}")
+            print(f"[CAMARA] Conectada: {state.video_source}")
             return True
         else:
             state.camera_connected = False
-            print("[CAMARA] No detectada")
+            print(f"[CAMARA] No se pudo abrir: {state.video_source}")
             return False
     except Exception as e:
         state.camera_connected = False
@@ -59,31 +81,55 @@ def init_camera():
         return False
 
 
-def detect_motion_real():
-    """Detecta movimiento comparando frames consecutivos."""
-    if not state.camera_connected or not state.cap:
-        return False
-
-    ret, frame = state.cap.read()
-    if not ret or frame is None:
-        return False
-
+def process_frame(frame):
+    """Compara un frame con el anterior. Retorna (motion, motion_pixels)."""
     small = cv2.resize(frame, (320, 240))
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (21, 21), 0)
 
     if state.prev_frame is None:
         state.prev_frame = gray
-        return False
+        return False, 0
 
     delta = cv2.absdiff(state.prev_frame, gray)
     thresh = cv2.threshold(delta, 25, 255, cv2.THRESH_BINARY)[1]
     thresh = cv2.dilate(thresh, None, iterations=2)
 
-    motion_pixels = cv2.countNonZero(thresh)
+    motion_pixels = int(cv2.countNonZero(thresh))
     state.prev_frame = gray
 
-    return motion_pixels > MOTION_THRESHOLD
+    return motion_pixels > MOTION_THRESHOLD, motion_pixels
+
+
+def apply_motion(motion):
+    """Actualiza el temporizador de presencia con el resultado."""
+    state.motion_detected = motion
+    if motion:
+        state.presence_seconds += CHECK_INTERVAL
+        state.last_detection = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        if state.presence_seconds >= state.presence_threshold:
+            if not state.presence_confirmed:
+                print(f"[PRESENCIA] Confirmada ({state.presence_seconds}s)")
+            state.presence_confirmed = True
+        else:
+            state.presence_confirmed = False
+    else:
+        if state.presence_seconds > 0:
+            print("[PRESENCIA] Movimiento perdido, reiniciando contador")
+        state.presence_seconds = 0
+        state.presence_confirmed = False
+
+
+def detect_motion_real():
+    """Detecta movimiento capturando un frame de la fuente actual."""
+    if not state.camera_connected or not state.cap:
+        return False
+    ret, frame = state.cap.read()
+    if not ret or frame is None:
+        return False
+    motion, pixels = process_frame(frame)
+    state.motion_pixels = pixels
+    return motion
 
 
 def detect_motion_test():
@@ -110,26 +156,8 @@ def monitoring_loop():
     while state.monitoring:
         try:
             motion = detect_motion()
-
             with state.lock:
-                state.motion_detected = motion
-
-                if motion:
-                    state.presence_seconds += CHECK_INTERVAL
-                    state.last_detection = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-                    if state.presence_seconds >= state.presence_threshold:
-                        if not state.presence_confirmed:
-                            print(f"[PRESENCIA] Confirmada ({state.presence_seconds}s)")
-                        state.presence_confirmed = True
-                    else:
-                        state.presence_confirmed = False
-                else:
-                    if state.presence_seconds > 0:
-                        print(f"[PRESENCIA] Movimiento perdido, reiniciando contador")
-                    state.presence_seconds = 0
-                    state.presence_confirmed = False
-
+                apply_motion(motion)
         except Exception as e:
             print(f"[ERROR] {e}")
 
@@ -143,12 +171,16 @@ def get_status():
         return jsonify({
             'camera': state.camera_connected or state.test_mode,
             'motion': state.motion_detected,
+            'motion_pixels': state.motion_pixels,
             'presence_seconds': state.presence_seconds,
             'presence_threshold': state.presence_threshold,
             'presence_confirmed': state.presence_confirmed,
             'monitoring': state.monitoring,
             'last_detection': state.last_detection,
-            'test_mode': state.test_mode
+            'last_photo_result': state.last_photo_result,
+            'test_mode': state.test_mode,
+            'source': state.video_source if isinstance(state.video_source, int) else str(state.video_source),
+            'source_label': state.source_label
         })
 
 
@@ -201,6 +233,89 @@ def reset_presence():
         state.presence_seconds = 0
         state.presence_confirmed = False
     return jsonify({'status': 'reset'})
+
+
+# ─── Fuentes de cámara ────────────────────────────────────────────
+
+@app.route('/camera/sources')
+def camera_sources():
+    """Lista la fuente actual y prueba índices USB disponibles."""
+    available = []
+    for i in range(3):
+        try:
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                available.append(i)
+            cap.release()
+        except Exception:
+            pass
+    return jsonify({
+        'current': state.video_source if isinstance(state.video_source, int) else str(state.video_source),
+        'current_label': state.source_label,
+        'usb_available': available,
+        'test_mode': state.test_mode
+    })
+
+
+@app.route('/camera/source', methods=['POST'])
+def camera_set_source():
+    """Cambia la fuente de video: {"source": 0 | "http://ip:5002/video" | "test"}."""
+    data = request.get_json(force=True, silent=True) or {}
+    src = data.get('source', 0)
+    label = str(data.get('label') or '').strip()
+
+    if str(src).strip().lower() == 'test':
+        state.test_mode = True
+        state.test_cycle_index = 0
+        state.source_label = 'test'
+        print("[CAMARA] Fuente cambiada a modo prueba")
+        return jsonify({'status': 'ok', 'source': 'test'})
+
+    state.test_mode = False
+    ok = init_camera(src)
+    state.source_label = label or ('laptop' if isinstance(state.video_source, str) else 'raspberry')
+    with state.lock:
+        state.prev_frame = None
+        state.presence_seconds = 0
+        state.presence_confirmed = False
+    if ok:
+        return jsonify({'status': 'ok', 'source': state.video_source, 'label': state.source_label})
+    return jsonify({'error': f'No se pudo abrir la fuente: {src}'}), 503
+
+
+@app.route('/camera/upload', methods=['POST'])
+def camera_upload():
+    """Procesa una foto subida manualmente como un frame de detección.
+
+    Compara la foto con el frame anterior usando el mismo pipeline de
+    movimiento y actualiza el temporizador de presencia.
+    """
+    if 'photo' not in request.files:
+        return jsonify({'error': 'Falta el archivo (campo "photo")'}), 400
+    try:
+        data = request.files['photo'].read()
+        arr = np.frombuffer(data, dtype=np.uint8)
+        frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if frame is None:
+            return jsonify({'error': 'Imagen inválida'}), 400
+        with state.lock:
+            motion, pixels = process_frame(frame)
+            apply_motion(motion)
+            result = {
+                'motion': motion,
+                'motion_pixels': pixels,
+                'motion_threshold': MOTION_THRESHOLD,
+                'presence_seconds': state.presence_seconds,
+                'presence_threshold': state.presence_threshold,
+                'presence_confirmed': state.presence_confirmed,
+                'last_detection': state.last_detection
+            }
+            state.last_photo_result = result
+        print(f"[FOTO] motion={motion} pixels={pixels} presencia={state.presence_seconds}s")
+        return jsonify(result)
+    except Exception as e:
+        print(f"[FOTO] Error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 # ─── Endpoints de prueba ──────────────────────────────────────────

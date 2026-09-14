@@ -520,7 +520,10 @@ app.get('/api/presence', async (req, res) => {
     detected: status.presence_confirmed,
     presence_seconds: status.presence_seconds,
     threshold: status.presence_threshold,
-    last_detection: status.last_detection
+    last_detection: status.last_detection,
+    source: status.source,
+    source_label: status.source_label,
+    test_mode: status.test_mode
   });
 });
 
@@ -549,6 +552,58 @@ app.post('/api/presence/threshold', (req, res) => {
 app.post('/api/presence/feed-only', (req, res) => {
   presenceState.feed_only_with_presence = !!req.body.enabled;
   res.json({ feed_only_with_presence: presenceState.feed_only_with_presence });
+});
+
+// ─── Cámara: fuentes configurables + subida de foto ────────────────
+function postPresenceJSON(path, payload) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify(payload);
+    const r = http.request({
+      host: '127.0.0.1', port: 5001, path, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => { try { resolve({ status: res.statusCode, body: JSON.parse(data) }); } catch { resolve({ status: res.statusCode, body: null }); } });
+    });
+    r.on('error', () => resolve(null));
+    r.write(body);
+    r.end();
+  });
+}
+
+app.get('/api/camera/sources', async (req, res) => {
+  const result = await fetchPresence('/camera/sources');
+  res.json(result || { error: 'Detector no disponible' });
+});
+
+app.post('/api/camera/source', async (req, res) => {
+  const result = await postPresenceJSON('/camera/source', req.body || {});
+  if (!result) return res.status(503).json({ error: 'Detector no disponible' });
+  res.status(result.status).json(result.body);
+});
+
+// Subida de foto de prueba: reenvía el multipart tal cual al detector
+app.post('/api/camera/upload', (req, res) => {
+  const chunks = [];
+  req.on('data', (c) => chunks.push(c));
+  req.on('end', () => {
+    const body = Buffer.concat(chunks);
+    const r = http.request({
+      host: '127.0.0.1', port: 5001, path: '/camera/upload', method: 'POST',
+      headers: { 'Content-Type': req.headers['content-type'] || 'application/octet-stream', 'Content-Length': body.length }
+    }, (pres) => {
+      let data = '';
+      pres.on('data', (c) => { data += c; });
+      pres.on('end', () => {
+        res.status(pres.statusCode);
+        try { res.json(JSON.parse(data)); } catch { res.send(data); }
+      });
+    });
+    r.on('error', () => res.status(503).json({ error: 'Detector no disponible' }));
+    r.write(body);
+    r.end();
+  });
 });
 
 app.get('/api/presence/feed-only', (req, res) => {

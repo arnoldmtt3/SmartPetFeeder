@@ -232,6 +232,30 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
       <button class="red sm" onclick="stopPresence()">&#9632; Detener</button>
     </div>
     <div id="presenceInfo" class="text-muted mt-10" style="min-height:20px;"></div>
+    <div class="row mt-10">
+      <label>Fuente:</label>
+      <select id="cameraSource" style="flex:1;min-width:140px;">
+        <option value="raspberry">C&aacute;mara Raspberry (USB)</option>
+        <option value="laptop">C&aacute;mara de laptop (URL)</option>
+        <option value="test">Modo prueba (sin c&aacute;mara)</option>
+      </select>
+    </div>
+    <div class="row" id="cameraUrlRow" style="display:none;">
+      <label>URL:</label>
+      <input type="text" id="cameraUrl" placeholder="http://IP_LAPTOP:5002/video" style="flex:1;min-width:140px;">
+    </div>
+    <div class="btn-group">
+      <button class="blue sm" onclick="setCameraSource()">Cambiar fuente</button>
+    </div>
+    <div class="text-muted mt-10">Fuente actual: <strong id="cameraSourceLabel">raspberry</strong></div>
+    <div class="row mt-10">
+      <label>Foto prueba:</label>
+      <input type="file" id="photoUpload" accept="image/*" style="flex:1;min-width:140px;">
+    </div>
+    <div class="btn-group">
+      <button class="orange sm" onclick="uploadTestPhoto()">Probar con foto</button>
+    </div>
+    <div id="photoResult" class="text-muted mt-10" style="min-height:20px;"></div>
   </div>
 
   <!-- Faja Transportadora -->
@@ -643,6 +667,8 @@ async function pollPresence() {
   }
 
   document.getElementById('presenceThreshold').value = res.threshold || 10;
+  const srcLabel = document.getElementById('cameraSourceLabel');
+  if (srcLabel) srcLabel.textContent = res.source_label || res.source || 'raspberry';
 }
 
 async function startPresence() {
@@ -665,6 +691,62 @@ async function stopPresence() {
 async function updateFeedOnlyPresence() {
   const enabled = document.getElementById('feedOnlyPresence').checked;
   await api('POST', '/api/presence/feed-only', { enabled });
+}
+
+// --- Fuente de cámara ---
+document.addEventListener('change', function(e) {
+  if (e.target.id === 'cameraSource') {
+    document.getElementById('cameraUrlRow').style.display =
+      (e.target.value === 'laptop') ? 'flex' : 'none';
+  }
+});
+
+async function setCameraSource() {
+  const sel = document.getElementById('cameraSource').value;
+  let payload;
+  if (sel === 'laptop') {
+    const url = document.getElementById('cameraUrl').value.trim();
+    if (!url) { toast('Escribe la URL del stream de tu laptop', true); return; }
+    payload = { source: url, label: 'laptop' };
+  } else if (sel === 'test') {
+    payload = { source: 'test', label: 'test' };
+  } else {
+    payload = { source: 0, label: 'raspberry' };
+  }
+  const res = await api('POST', '/api/camera/source', payload);
+  if (res && res.status === 'ok') {
+    toast('Fuente de cámara: ' + (res.label || sel));
+    await pollPresence();
+  } else {
+    toast((res && res.error) || 'No se pudo abrir la fuente', true);
+  }
+}
+
+// --- Foto de prueba ---
+async function uploadTestPhoto() {
+  const input = document.getElementById('photoUpload');
+  if (!input.files || !input.files[0]) { toast('Elige una foto primero', true); return; }
+  const form = new FormData();
+  form.append('photo', input.files[0]);
+  const out = document.getElementById('photoResult');
+  out.textContent = 'Analizando foto...';
+  try {
+    const r = await fetch(API + '/api/camera/upload', { method: 'POST', body: form });
+    const res = await r.json();
+    if (res && typeof res.motion !== 'undefined') {
+      out.textContent = 'Movimiento: ' + (res.motion ? 'SÍ' : 'NO') +
+        ' (' + res.motion_pixels + ' px) | Presencia: ' + res.presence_seconds + 's / ' + res.presence_threshold + 's' +
+        (res.presence_confirmed ? ' → CONFIRMADA' : '');
+      toast(res.motion ? 'Foto con movimiento detectado' : 'Foto sin movimiento');
+      await pollPresence();
+    } else {
+      out.textContent = '';
+      toast((res && res.error) || 'Error al procesar la foto', true);
+    }
+  } catch (e) {
+    out.textContent = '';
+    toast('Error de conexión: ' + e.message, true);
+  }
 }
 
 // --- Horarios ---
