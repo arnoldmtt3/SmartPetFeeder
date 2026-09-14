@@ -2,11 +2,13 @@
 """
 SmartPetFeeder - Detección de presencia con OpenCV
 Detecta movimiento con cámara USB y expone estado vía HTTP.
+Modo TEST: simula detección sin cámara física.
 """
 
 import cv2
 import time
 import threading
+import random
 from datetime import datetime
 from flask import Flask, jsonify
 
@@ -31,6 +33,10 @@ class DetectionState:
         self.cap = None
         self.prev_frame = None
         self.lock = threading.Lock()
+        # Modo test
+        self.test_mode = False
+        self.test_motion = False
+        self.test_cycle_index = 0
 
 state = DetectionState()
 
@@ -53,7 +59,7 @@ def init_camera():
         return False
 
 
-def detect_motion():
+def detect_motion_real():
     """Detecta movimiento comparando frames consecutivos."""
     if not state.camera_connected or not state.cap:
         return False
@@ -62,7 +68,6 @@ def detect_motion():
     if not ret or frame is None:
         return False
 
-    # Reducir tamaño para procesar más rápido
     small = cv2.resize(frame, (320, 240))
     gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (21, 21), 0)
@@ -71,16 +76,33 @@ def detect_motion():
         state.prev_frame = gray
         return False
 
-    # Calcular diferencia entre frames
     delta = cv2.absdiff(state.prev_frame, gray)
     thresh = cv2.threshold(delta, 25, 255, cv2.THRESH_BINARY)[1]
     thresh = cv2.dilate(thresh, None, iterations=2)
 
-    # Contar píxeles blancos (movimiento)
     motion_pixels = cv2.countNonZero(thresh)
     state.prev_frame = gray
 
     return motion_pixels > MOTION_THRESHOLD
+
+
+def detect_motion_test():
+    """Simula detección de movimiento para pruebas.
+    Ciclo: 6s con movimiento, 6s sin movimiento.
+    """
+    state.test_cycle_index += 1
+    # 6s con movimiento (3 checks de 2s), 6s sin movimiento
+    cycle_position = state.test_cycle_index % 6
+    has_motion = cycle_position < 3
+    state.test_motion = has_motion
+    return has_motion
+
+
+def detect_motion():
+    """Detecta movimiento (real o simulado)."""
+    if state.test_mode:
+        return detect_motion_test()
+    return detect_motion_real()
 
 
 def monitoring_loop():
@@ -119,32 +141,34 @@ def get_status():
     """Retorna estado actual de detección."""
     with state.lock:
         return jsonify({
-            'camera': state.camera_connected,
+            'camera': state.camera_connected or state.test_mode,
             'motion': state.motion_detected,
             'presence_seconds': state.presence_seconds,
             'presence_threshold': state.presence_threshold,
             'presence_confirmed': state.presence_confirmed,
             'monitoring': state.monitoring,
-            'last_detection': state.last_detection
+            'last_detection': state.last_detection,
+            'test_mode': state.test_mode
         })
 
 
 @app.route('/start')
 def start_monitoring():
     """Inicia el monitoreo de presencia."""
-    if not state.camera_connected:
+    if not state.test_mode and not state.camera_connected:
         init_camera()
 
-    if not state.camera_connected:
-        return jsonify({'error': 'Cámara no conectada'}), 503
+    if not state.test_mode and not state.camera_connected:
+        return jsonify({'error': 'Cámara no conectada. Usa /test/start para modo prueba.'}), 503
 
     if not state.monitoring:
         state.monitoring = True
         state.prev_frame = None
         t = threading.Thread(target=monitoring_loop, daemon=True)
         t.start()
-        print("[MONITOREO] Iniciado")
-        return jsonify({'status': 'started', 'camera': True})
+        mode = "TEST" if state.test_mode else "REAL"
+        print(f"[MONITOREO] Iniciado (modo {mode})")
+        return jsonify({'status': 'started', 'camera': True, 'test_mode': state.test_mode})
     return jsonify({'status': 'already_running'})
 
 
@@ -179,12 +203,75 @@ def reset_presence():
     return jsonify({'status': 'reset'})
 
 
+# ─── Endpoints de prueba ──────────────────────────────────────────
+
+@app.route('/test/start')
+def start_test_mode():
+    """Activa modo prueba (sin cámara). Simula movimiento cada 6s."""
+    state.test_mode = True
+    state.test_cycle_index = 0
+    print("[TEST] Modo prueba activado")
+    return jsonify({
+        'status': 'test_mode_started',
+        'message': 'Simulación: 6s con movimiento, 6s sin movimiento'
+    })
+
+
+@app.route('/test/stop')
+def stop_test_mode():
+    """Desactiva modo prueba."""
+    state.test_mode = False
+    state.test_motion = False
+    print("[TEST] Modo prueba desactivado")
+    return jsonify({'status': 'test_mode_stopped'})
+
+
+@app.route('/test/simulate/<int:seconds>')
+def simulate_motion(seconds):
+    """Simula movimiento continuo por X segundos."""
+    if 1 <= seconds <= 60:
+        def fake_motion():
+            state.test_mode = True
+            state.test_motion = True
+            state.monitoring = True
+            with state.lock:
+                state.presence_seconds = 0
+                state.presence_confirmed = False
+            print(f"[TEST] Simulando movimiento por {seconds}s")
+
+            for i in range(0, seconds, CHECK_INTERVAL):
+                with state.lock:
+                    state.motion_detected = True
+                    state.presence_seconds += CHECK_INTERVAL
+                    state.last_detection = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    if state.presence_seconds >= state.presence_threshold:
+                        state.presence_confirmed = True
+                        print(f"[TEST] ¡Presencia confirmada! ({state.presence_seconds}s)")
+                time.sleep(CHECK_INTERVAL)
+
+            with state.lock:
+                state.motion_detected = False
+                state.test_motion = False
+            print(f"[TEST] Simulación terminada")
+
+        t = threading.Thread(target=fake_motion, daemon=True)
+        t.start()
+        return jsonify({'status': 'simulating', 'seconds': seconds})
+    return jsonify({'error': 'Valor debe ser entre 1 y 60'}), 400
+
+
 if __name__ == '__main__':
     print("=== SmartPetFeeder - Detector de Presencia ===")
+    print("Modos disponibles:")
+    print("  Real:      python3 presence_detector.py")
+    print("  Prueba:    python3 presence_detector.py --test")
+    print("  API:       curl http://localhost:5001/test/start")
+
+    import sys
+    if '--test' in sys.argv:
+        state.test_mode = True
+        print("[CONFIG] Modo prueba activado por argumento")
+
     init_camera()
-    if state.camera_connected:
-        print("Cámara lista. Iniciando servidor HTTP en puerto 5001...")
-        app.run(host='0.0.0.0', port=5001, debug=False)
-    else:
-        print("Sin cámara. Solo modo API (sin detección).")
-        app.run(host='0.0.0.0', port=5001, debug=False)
+    print("Servidor HTTP en puerto 5001...")
+    app.run(host='0.0.0.0', port=5001, debug=False)
