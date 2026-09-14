@@ -35,8 +35,10 @@ class DetectionState:
         self.last_photo_result = None
         self.monitoring = False
         self.cap = None
+        self.latest_frame = None
         self.prev_frame = None
         self.lock = threading.Lock()
+        self.cap_lock = threading.Lock()
         # Modo test
         self.test_mode = False
         self.test_motion = False
@@ -120,15 +122,41 @@ def apply_motion(motion):
         state.presence_confirmed = False
 
 
+def capture_loop():
+    """Único lector de la cámara: actualiza latest_frame ~10fps."""
+    while True:
+        try:
+            if state.test_mode or not state.camera_connected or state.cap is None:
+                time.sleep(1)
+                continue
+            with state.cap_lock:
+                ret, frame = state.cap.read()
+            if ret and frame is not None:
+                with state.lock:
+                    state.latest_frame = frame
+            else:
+                time.sleep(0.2)
+        except Exception:
+            time.sleep(0.5)
+        time.sleep(0.1)
+
+
+def get_latest_frame():
+    """Copia del último frame (sin bloquear la captura)."""
+    with state.lock:
+        if state.latest_frame is None:
+            return None
+        return state.latest_frame.copy()
+
+
 def detect_motion_real():
-    """Detecta movimiento capturando un frame de la fuente actual."""
-    if not state.camera_connected or not state.cap:
+    """Detecta movimiento analizando el último frame capturado."""
+    frame = get_latest_frame()
+    if frame is None:
         return False
-    ret, frame = state.cap.read()
-    if not ret or frame is None:
-        return False
-    motion, pixels = process_frame(frame)
-    state.motion_pixels = pixels
+    with state.lock:
+        motion, pixels = process_frame(frame)
+        state.motion_pixels = pixels
     return motion
 
 
@@ -348,10 +376,8 @@ def snapshot():
         cv2.putText(img, ts, (190, 320),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (120, 120, 120), 1)
         frame = img
-    elif state.camera_connected and state.cap is not None:
-        ret, f = state.cap.read()
-        if ret and f is not None:
-            frame = f
+    else:
+        frame = get_latest_frame()
 
     if frame is None:
         return jsonify({'error': 'Sin imagen disponible'}), 503
@@ -360,6 +386,50 @@ def snapshot():
         return jsonify({'error': 'No se pudo codificar'}), 500
     from flask import Response
     return Response(buf.tobytes(), mimetype='image/jpeg')
+
+
+# ─── Stream MJPEG fluido ────────────────────────────────────────────
+
+@app.route('/video_stream')
+def video_stream():
+    """Stream MJPEG fluido de la fuente actual."""
+    from flask import Response, stream_with_context
+
+    def gen():
+        frame_i = 0
+        while True:
+            frame = None
+            if state.test_mode:
+                img = np.zeros((360, 480, 3), dtype=np.uint8)
+                img[:] = (60, 60, 60)
+                x = int((frame_i * 5) % 380)
+                cv2.rectangle(img, (x, 140), (x + 100, 220), (0, 200, 0), -1)
+                cv2.putText(img, 'MODO PRUEBA', (140, 60),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (150, 150, 150), 2)
+                with state.lock:
+                    confirmed = state.presence_confirmed
+                if confirmed:
+                    cv2.putText(img, 'DETECTADA', (150, 300),
+                                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+                ts = datetime.now().strftime('%H:%M:%S')
+                cv2.putText(img, ts, (190, 330),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (120, 120, 120), 1)
+                frame = img
+                frame_i += 1
+            else:
+                frame = get_latest_frame()
+            if frame is None:
+                time.sleep(0.5)
+                continue
+            ok, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            if not ok:
+                continue
+            yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n'
+                   + buf.tobytes() + b'\r\n')
+            time.sleep(0.1)
+
+    return Response(stream_with_context(gen()),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 # ─── Endpoints de prueba ──────────────────────────────────────────
@@ -432,5 +502,7 @@ if __name__ == '__main__':
         print("[CONFIG] Modo prueba activado por argumento")
 
     init_camera()
+    ct = threading.Thread(target=capture_loop, daemon=True)
+    ct.start()
     print("Servidor HTTP en puerto 5001...")
     app.run(host='0.0.0.0', port=5001, debug=False)

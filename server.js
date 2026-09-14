@@ -432,16 +432,19 @@ app.get('/sequence_status', (req, res) => res.json({
   progress_pct: state.sequence_progress_pct,
 }));
 
-// Video en vivo: snapshot de la fuente actual del detector
+// Video en vivo: proxy del stream MJPEG fluido del detector
 app.get('/video_feed', (req, res) => {
-  http.get('http://127.0.0.1:5001/snapshot', (pres) => {
+  const up = http.get('http://127.0.0.1:5001/video_stream', (pres) => {
     if (pres.statusCode !== 200) {
       res.status(503).send('Camara no conectada');
       return;
     }
-    res.set('Content-Type', 'image/jpeg');
+    res.set('Content-Type', 'multipart/x-mixed-replace; boundary=frame');
+    res.set('Cache-Control', 'no-cache');
     pres.pipe(res);
-  }).on('error', () => res.status(503).send('Camara no conectada'));
+  });
+  up.on('error', () => { try { res.status(503).send('Camara no conectada'); } catch { /* ya respondido */ } });
+  req.on('close', () => { try { up.destroy(); } catch { /* ignorar */ } });
 });
 
 // Last feed
