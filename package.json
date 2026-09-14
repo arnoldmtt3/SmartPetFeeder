@@ -1,6 +1,6 @@
 {
   "name": "smartpetfeeder",
-  "version": "2.0.0",
+  "version": "2.2.0",
   "description": "Alimentador automatico para mascotas - Node.js + PCA9685",
   "main": "server.js",
   "scripts": {
@@ -8,8 +8,9 @@
     "dev": "node server.js"
   },
   "dependencies": {
+    "better-sqlite3": "^11.10.0",
     "express": "^4.18.2",
-    "ws": "^8.16.0",
-    "lgpio": "^1.0.6"
+    "lgpio": "^1.0.6",
+    "ws": "^8.16.0"
   }
 }

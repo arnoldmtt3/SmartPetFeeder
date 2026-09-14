@@ -18,6 +18,7 @@ const { WebSocketServer } = require('ws');
 const path = require('path');
 const fs = require('fs');
 const lgpio = require('lgpio');
+const Database = require('better-sqlite3');
 
 // ─── Config ────────────────────────────────────────────────────────
 const PORT = 3000;
@@ -53,9 +54,36 @@ const state = {
   sequence_progress_pct: 0,
 };
 
+// ─── SQLite Database ────────────────────────────────────────────────
+const DB_FILE = path.join(__dirname, 'data', 'smartpetfeeder.db');
+const db = new Database(DB_FILE);
+db.pragma('journal_mode = WAL');
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS schedules (
+    id TEXT PRIMARY KEY,
+    hour INTEGER NOT NULL,
+    minute INTEGER NOT NULL,
+    portions INTEGER DEFAULT 18,
+    humidify INTEGER DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS last_feed (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    portions INTEGER DEFAULT 18,
+    humidify INTEGER DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS feed_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT,
+    time TEXT,
+    portions TEXT,
+    humidify TEXT,
+    status TEXT,
+    created_at TEXT DEFAULT (datetime('now','localtime'))
+  );
+`);
+
 const feedLog = [];
-const SCHEDULES_FILE = path.join(__dirname, 'data', 'schedules.json');
-const LAST_FEED_FILE = path.join(__dirname, 'data', 'last_feed.json');
 
 // ─── lgpio handles ────────────────────────────────────────────────
 let gpioHandle = null;
@@ -248,22 +276,36 @@ function delay(ms) {
 
 // ─── Feed log ──────────────────────────────────────────────────────
 function addFeedLogEntry(portions, humidify, success) {
-  feedLog.unshift({
+  const entry = {
     date: new Date().toLocaleDateString('es-PE'),
     time: new Date().toLocaleTimeString('es-PE'),
     portions: portions + 'g',
     humidify: humidify ? 'Si' : 'No',
     status: success ? 'Completada' : 'Fallida',
-  });
+  };
+  feedLog.unshift(entry);
   if (feedLog.length > 100) feedLog.length = 100;
+
+  try {
+    db.prepare('INSERT INTO feed_log (date, time, portions, humidify, status) VALUES (?, ?, ?, ?, ?)')
+      .run(entry.date, entry.time, entry.portions, entry.humidify, entry.status);
+  } catch (e) {
+    console.error('[DB] Error guardando log:', e.message);
+  }
 }
 
 // ─── Schedules ─────────────────────────────────────────────────────
 function loadSchedules() {
-  try { return JSON.parse(fs.readFileSync(SCHEDULES_FILE, 'utf8')); } catch { return []; }
+  try {
+    const rows = db.prepare('SELECT id, hour, minute, portions, humidify FROM schedules').all();
+    return rows.map(r => ({ ...r, humidify: !!r.humidify }));
+  } catch { return []; }
 }
 function saveSchedules(list) {
-  fs.writeFileSync(SCHEDULES_FILE, JSON.stringify(list, null, 2));
+  db.exec('DELETE FROM schedules');
+  const insert = db.prepare('INSERT INTO schedules (id, hour, minute, portions, humidify) VALUES (?, ?, ?, ?, ?)');
+  const tx = db.transaction((items) => { for (const s of items) insert.run(s.id, s.hour, s.minute, s.portions, s.humidify ? 1 : 0); });
+  tx(list);
 }
 function checkSchedules() {
   const now = new Date();
@@ -350,11 +392,17 @@ app.get('/video_feed', (req, res) => res.status(503).send('Camara no conectada')
 
 // Last feed
 app.get('/api/last-feed', (req, res) => {
-  try { res.json(JSON.parse(fs.readFileSync(LAST_FEED_FILE, 'utf8'))); } catch { res.json({ portions: 18, humidify: false }); }
+  try {
+    const row = db.prepare('SELECT portions, humidify FROM last_feed WHERE id = 1').get();
+    res.json(row || { portions: 18, humidify: false });
+  } catch { res.json({ portions: 18, humidify: false }); }
 });
 app.post('/api/last-feed', (req, res) => {
-  try { fs.writeFileSync(LAST_FEED_FILE, JSON.stringify(req.body, null, 2)); res.json({ status: 'ok' }); }
-  catch (e) { res.status(500).json({ status: 'error', message: e.message }); }
+  try {
+    const { portions = 18, humidify = false } = req.body;
+    db.prepare('INSERT OR REPLACE INTO last_feed (id, portions, humidify) VALUES (1, ?, ?)').run(portions, humidify ? 1 : 0);
+    res.json({ status: 'ok' });
+  } catch (e) { res.status(500).json({ status: 'error', message: e.message }); }
 });
 
 // Faja (stubs)
@@ -373,15 +421,24 @@ app.get('/schedules', (req, res) => res.json(loadSchedules()));
 app.post('/schedules', (req, res) => {
   const { time, portions = 18, humidify = false } = req.body;
   const [hour, minute] = time.split(':').map(Number);
-  const list = loadSchedules();
-  const item = { id: Date.now().toString(36), hour, minute, portions, humidify };
-  list.push(item);
-  saveSchedules(list);
-  res.json(item);
+  const id = Date.now().toString(36);
+  try {
+    db.prepare('INSERT INTO schedules (id, hour, minute, portions, humidify) VALUES (?, ?, ?, ?, ?)')
+      .run(id, hour, minute, portions, humidify ? 1 : 0);
+    res.json({ id, hour, minute, portions, humidify });
+  } catch (e) { res.status(500).json({ status: 'error', message: e.message }); }
 });
 app.delete('/schedules/:id', (req, res) => {
-  saveSchedules(loadSchedules().filter((s) => s.id !== req.params.id));
+  db.prepare('DELETE FROM schedules WHERE id = ?').run(req.params.id);
   res.json({ status: 'ok' });
+});
+
+// Feed log
+app.get('/api/feed-log', (req, res) => {
+  try {
+    const rows = db.prepare('SELECT date, time, portions, humidify, status FROM feed_log ORDER BY id DESC LIMIT 50').all();
+    res.json(rows);
+  } catch { res.json([]); }
 });
 
 // WebSocket
