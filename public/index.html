@@ -3,89 +3,220 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Alimentador PUCP</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#1F4B3F">
+<title>SmartPetFeeder — Alimentador PUCP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
+/* ============ Reset & tokens ============ */
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Inter', sans-serif; background: #f0f4f8; color: #1a202c; padding: 24px; }
-h1 { text-align: center; font-size: 1.6em; font-weight: 700; color: #2d3748; margin-bottom: 6px; }
-.subtitle { text-align: center; color: #718096; font-size: 0.9em; margin-bottom: 24px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; max-width: 1400px; margin: 0 auto; grid-auto-flow: row dense; align-items: stretch; }
-.card { background: #fff; border-radius: 14px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; transition: box-shadow 0.2s; }
-.card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+
+:root, body {
+  /* Home (Usuario) palette — warm, sage-neutral, kibble-gold accent */
+  --bg: #F1F4EE;
+  --surface: #FFFFFF;
+  --surface-2: #F7F9F4;
+  --ink: #1D2B22;
+  --muted: #66766B;
+  --primary: #1F4B3F;
+  --primary-ink: #FFFFFF;
+  --accent: #E8A33D;
+  --accent-ink: #2B1B03;
+  --border: #E1E7DD;
+  --shadow: 0 1px 2px rgba(31,75,63,0.06), 0 10px 28px rgba(31,75,63,0.07);
+  --pos-bg: #DCF3DE; --pos-fg: #20622B;
+  --neu-bg: #EAEDE6; --neu-fg: #5B685E;
+  --warn-bg: #FBE7C6; --warn-fg: #8A5A12;
+  --danger: #C1584C; --danger-bg: #F6DEDA; --danger-fg: #8A362B;
+}
+
+body.theme-tech {
+  /* Pruebas / Técnico palette — dark diagnostic console, cyan primary */
+  --bg: #12161B;
+  --surface: #1B222A;
+  --surface-2: #202830;
+  --ink: #DEE4E8;
+  --muted: #8B98A4;
+  --primary: #4FC7D9;
+  --primary-ink: #0B1417;
+  --accent: #E8A33D;
+  --accent-ink: #241704;
+  --border: #2B343C;
+  --shadow: 0 1px 2px rgba(0,0,0,0.35), 0 10px 28px rgba(0,0,0,0.35);
+  --pos-bg: #17342A; --pos-fg: #52C98A;
+  --neu-bg: #232C34; --neu-fg: #8B98A4;
+  --warn-bg: #3A2E12; --warn-fg: #EFB158;
+  --danger: #E0685C; --danger-bg: #3A1E1B; --danger-fg: #E88880;
+}
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  padding: 20px 16px 60px;
+  transition: background 0.45s ease, color 0.3s ease;
+}
+
+h1, h2, .hero-num { font-family: 'Space Grotesk', sans-serif; }
+
+/* ============ Top identity ============ */
+.top { max-width: 1160px; margin: 0 auto 18px; text-align: center; }
+h1 { font-size: 1.7em; font-weight: 700; letter-spacing: -0.01em; }
+.subtitle { color: var(--muted); font-size: 0.92em; margin-top: 4px; }
+
+/* ============ Mode switch ============ */
+.tab-nav { display: flex; gap: 10px; justify-content: center; max-width: 560px; margin: 0 auto 20px; }
+.tab-btn {
+  flex: 1; background: var(--surface); color: var(--muted); border: 1.5px solid var(--border);
+  padding: 12px 16px; border-radius: 14px; cursor: pointer; font-size: 0.95em; font-weight: 600;
+  font-family: 'Inter', sans-serif; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.tab-btn:hover { border-color: var(--primary); }
+.tab-btn.active { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); box-shadow: var(--shadow); }
+
+/* ============ Quick bar (hero banner) ============ */
+.quick-bar {
+  max-width: 1160px; margin: 0 auto 18px; background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 80%, black));
+  border-radius: 18px; padding: 16px 22px; display: flex; align-items: center; gap: 16px; box-shadow: var(--shadow);
+}
+.quick-btn {
+  background: var(--accent); color: var(--accent-ink); border: none; padding: 13px 26px; border-radius: 12px;
+  cursor: pointer; font-size: 1em; font-weight: 700; font-family: inherit; display: flex; align-items: center; gap: 8px;
+  transition: transform 0.15s, box-shadow 0.15s; box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+}
+.quick-btn:hover { transform: translateY(-1px); }
+.quick-btn:disabled { background: var(--neu-bg); color: var(--neu-fg); cursor: not-allowed; transform: none; box-shadow: none; }
+.quick-icon { font-size: 1.25em; }
+.quick-info { color: rgba(255,255,255,0.85); font-size: 0.88em; }
+.quick-edit { color: var(--accent); font-size: 0.85em; cursor: pointer; text-decoration: underline; margin-left: auto; font-weight: 600; }
+.quick-edit:hover { opacity: 0.85; }
+
+/* ============ Layout grid ============ */
+.grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; max-width: 1160px; margin: 0 auto; align-items: start; }
+.card {
+  background: var(--surface); border-radius: 18px; padding: 20px 22px; box-shadow: var(--shadow);
+  border: 1px solid var(--border); grid-column: span 6;
+}
 .card.wide { grid-column: 1 / -1; }
-h2 { font-size: 1em; font-weight: 600; color: #4a5568; margin-bottom: 12px; padding-bottom: 6px; border-bottom: 2px solid #e2e8f0; display: flex; align-items: center; gap: 8px; }
-.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
-label { font-size: 0.85em; color: #718096; font-weight: 500; min-width: 70px; }
-select, input[type=number], input[type=time] { background: #f7fafc; color: #2d3748; border: 1px solid #e2e8f0; padding: 7px 12px; border-radius: 8px; font-size: 0.85em; font-family: inherit; outline: none; transition: border 0.2s; }
-select:focus, input:focus { border-color: #4299e1; box-shadow: 0 0 0 3px rgba(66,153,225,0.15); }
-button { background: #4299e1; color: #fff; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 0.85em; font-weight: 500; font-family: inherit; transition: all 0.2s; }
-button:hover { background: #3182ce; transform: translateY(-1px); box-shadow: 0 2px 6px rgba(66,153,225,0.3); }
+.card.span4 { grid-column: span 4; }
+.card.hero { grid-column: span 8; display: flex; flex-direction: column; gap: 14px; }
+.card.aside { grid-column: span 4; }
+@media (max-width: 880px) {
+  .card, .card.span4, .card.hero, .card.aside { grid-column: 1 / -1; }
+}
+
+h2 {
+  font-size: 1.02em; font-weight: 600; color: var(--ink); margin-bottom: 14px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 9px;
+}
+h2 .rec-btn { margin-left: auto; }
+.icon { font-size: 1.15em; }
+
+/* ============ Form controls ============ */
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+label { font-size: 0.85em; color: var(--muted); font-weight: 500; min-width: 70px; }
+select, input[type=number], input[type=time], input[type=text] {
+  background: var(--surface-2); color: var(--ink); border: 1.5px solid var(--border); padding: 9px 12px;
+  border-radius: 10px; font-size: 0.9em; font-family: inherit; outline: none; transition: border 0.2s; min-height: 40px;
+}
+select:focus, input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent); }
+
+button {
+  background: var(--primary); color: var(--primary-ink); border: none; padding: 10px 18px; border-radius: 10px;
+  cursor: pointer; font-size: 0.87em; font-weight: 600; font-family: inherit; transition: all 0.15s; min-height: 40px;
+}
+button:hover { filter: brightness(1.08); transform: translateY(-1px); }
 button:active { transform: translateY(0); }
-button:disabled { background: #cbd5e0; cursor: not-allowed; transform: none; box-shadow: none; }
-button.green { background: #48bb78; }
-button.green:hover { background: #38a169; box-shadow: 0 2px 6px rgba(72,187,120,0.3); }
-button.red { background: #fc8181; }
-button.red:hover { background: #f56565; box-shadow: 0 2px 6px rgba(252,129,129,0.3); }
-button.orange { background: #ed8936; }
-button.orange:hover { background: #dd6b20; box-shadow: 0 2px 6px rgba(237,137,54,0.3); }
-button.sm { padding: 5px 12px; font-size: 0.8em; }
-.badge { display: inline-flex; align-items: center; padding: 3px 12px; border-radius: 20px; font-size: 0.78em; font-weight: 600; gap: 4px; }
-.badge.open { background: #c6f6d5; color: #276749; }
-.badge.closed { background: #fed7d7; color: #9b2c2c; }
-.badge.running { background: #fefcbf; color: #975a16; }
-.badge.idle { background: #edf2f7; color: #4a5568; }
-.badge.success { background: #c6f6d5; color: #276749; }
-.badge.on { background: #c6f6d5; color: #276749; }
-.badge.off { background: #edf2f7; color: #4a5568; }
-.status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 4px 0; }
-.status-item { background: #f7fafc; border-radius: 10px; padding: 10px 12px; text-align: center; }
-.status-item .num { font-size: 1.5em; font-weight: 700; color: #2d3748; line-height: 1.3; }
-.status-item .lbl { font-size: 0.75em; color: #718096; font-weight: 500; }
-.progress { height: 8px; background: #edf2f7; border-radius: 4px; overflow: hidden; margin: 8px 0; }
-.progress-bar { height: 100%; background: linear-gradient(90deg, #4299e1, #48bb78); border-radius: 4px; transition: width 0.5s ease; }
-.video-container { position: relative; width: 100%; max-width: 640px; margin: 0 auto; border-radius: 10px; overflow: hidden; border: 2px solid #e2e8f0; }
-.video-container img { width: 100%; display: block; background: #edf2f7; }
-.schedule-item { display: flex; align-items: center; justify-content: space-between; background: #f7fafc; padding: 8px 14px; border-radius: 10px; margin: 6px 0; border: 1px solid #e2e8f0; }
-.schedule-item .info { display: flex; gap: 14px; align-items: center; font-size: 0.88em; }
-.schedule-item .info strong { color: #2d3748; }
+button:disabled { background: var(--neu-bg); color: var(--neu-fg); cursor: not-allowed; transform: none; filter: none; }
+button.green { background: #3F9142; color: #fff; }
+button.red { background: var(--danger); color: #fff; }
+button.orange { background: var(--accent); color: var(--accent-ink); }
+button.blue { background: #3B6FA0; color: #fff; }
+body.theme-tech button.blue { background: var(--primary); color: var(--primary-ink); }
+button.sm { padding: 7px 13px; font-size: 0.82em; min-height: 34px; }
+
+/* Toggle switch (wraps original checkbox inputs) */
+.switch { position: relative; display: inline-flex; align-items: center; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.switch .track { width: 46px; height: 26px; background: var(--neu-bg); border-radius: 20px; transition: background 0.2s; position: relative; }
+.switch .track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; background: #fff; border-radius: 50%; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+.switch input:checked + .track { background: #3F9142; }
+.switch input:checked + .track::after { transform: translateX(20px); }
+.switch input:focus-visible + .track { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ============ Badges ============ */
+.badge { display: inline-flex; align-items: center; padding: 4px 13px; border-radius: 20px; font-size: 0.78em; font-weight: 600; gap: 4px; }
+.badge.open, .badge.on, .badge.success { background: var(--pos-bg); color: var(--pos-fg); }
+.badge.closed, .badge.off, .badge.idle { background: var(--neu-bg); color: var(--neu-fg); }
+.badge.running { background: var(--warn-bg); color: var(--warn-fg); }
+
+/* ============ Status grid (hero readout) ============ */
+.status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 4px 0; }
+.status-item { background: var(--surface-2); border-radius: 12px; padding: 12px 10px; text-align: center; border: 1px solid var(--border); }
+.status-item .num { font-size: 1.4em; font-weight: 700; color: var(--ink); line-height: 1.3; }
+.status-item .lbl { font-size: 0.72em; color: var(--muted); font-weight: 500; margin-top: 2px; }
+
+.progress { height: 9px; background: var(--neu-bg); border-radius: 5px; overflow: hidden; margin: 10px 0 4px; }
+.progress-bar { height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent)); border-radius: 5px; transition: width 0.5s ease; }
+
+/* ============ Video ============ */
+.video-container { position: relative; width: 100%; max-width: 640px; margin: 0 auto; border-radius: 14px; overflow: hidden; border: 2px solid var(--border); background: #10151a; }
+.video-container img { width: 100%; display: block; min-height: 200px; background: #10151a; }
+
+/* ============ Schedules ============ */
+.schedule-item { display: flex; align-items: center; justify-content: space-between; background: var(--surface-2); padding: 10px 16px; border-radius: 12px; margin: 7px 0; border: 1px solid var(--border); }
+.schedule-item .info { display: flex; gap: 14px; align-items: center; font-size: 0.9em; }
+.schedule-item .info strong { color: var(--ink); font-family: 'JetBrains Mono', monospace; }
+
+/* ============ Log table ============ */
 .log-table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
-.log-table th { text-align: left; padding: 8px 10px; color: #718096; font-weight: 600; border-bottom: 2px solid #e2e8f0; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.03em; }
-.log-table td { padding: 8px 10px; border-bottom: 1px solid #f0f4f8; color: #4a5568; }
-.log-table tr:hover td { background: #f7fafc; }
-.log-table .empty { text-align: center; color: #a0aec0; padding: 24px; font-style: italic; }
-.btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
-.toast { position: fixed; bottom: 24px; right: 24px; background: #48bb78; color: #fff; padding: 12px 24px; border-radius: 10px; display: none; animation: slideIn 0.3s ease; z-index: 999; font-size: 0.9em; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-.toast.error { background: #fc8181; }
-@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+.log-table th { text-align: left; padding: 9px 10px; color: var(--muted); font-weight: 600; border-bottom: 2px solid var(--border); font-size: 0.78em; }
+.log-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); color: var(--ink); }
+.log-table tr:hover td { background: var(--surface-2); }
+.log-table .empty { text-align: center; color: var(--muted); padding: 26px; font-style: italic; }
+
+.btn-group { display: flex; gap: 7px; flex-wrap: wrap; }
+.toast {
+  position: fixed; bottom: 24px; right: 24px; left: 24px; max-width: 360px; margin-left: auto;
+  background: #3F9142; color: #fff; padding: 13px 20px; border-radius: 12px; display: none;
+  animation: slideIn 0.3s ease; z-index: 999; font-size: 0.9em; font-weight: 500; box-shadow: 0 6px 18px rgba(0,0,0,0.22);
+}
+.toast.error { background: var(--danger); }
+@keyframes slideIn { from { transform: translateY(12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 .mt-10 { margin-top: 10px; }
 .flex { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.text-muted { color: #a0aec0; font-size: 0.82em; }
-.icon { font-size: 1.1em; }
-.quick-bar { max-width: 1400px; margin: 0 auto 16px; background: #fff; border: 2px solid #48bb78; border-radius: 16px; padding: 14px 20px; display: flex; align-items: center; gap: 14px; box-shadow: 0 2px 8px rgba(72,187,120,0.15); }
-.quick-btn { background: linear-gradient(135deg, #48bb78, #38a169); color: #fff; border: none; padding: 12px 28px; border-radius: 12px; cursor: pointer; font-size: 1em; font-weight: 600; font-family: inherit; display: flex; align-items: center; gap: 8px; transition: all 0.2s; box-shadow: 0 2px 6px rgba(72,187,120,0.3); }
-.quick-btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(72,187,120,0.4); }
-.quick-btn:disabled { background: #cbd5e0; cursor: not-allowed; transform: none; box-shadow: none; }
-.quick-icon { font-size: 1.3em; }
-.quick-info { color: #718096; font-size: 0.88em; }
-.quick-edit { color: #4299e1; font-size: 0.82em; cursor: pointer; text-decoration: underline; margin-left: auto; }
-.quick-edit:hover { color: #3182ce; }
-.param-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
-.param-item { display: flex; flex-direction: column; background: #f7fafc; padding: 6px 10px; border-radius: 8px; }
-.param-item label { font-size: 0.75em; color: #718096; font-weight: 500; }
-.param-item input { background: #fff; border: 1px solid #e2e8f0; padding: 4px 8px; border-radius: 6px; font-size: 0.85em; font-family: inherit; margin-top: 2px; }
-.tab-nav { display: flex; gap: 8px; justify-content: center; max-width: 1400px; margin: 0 auto 16px; flex-wrap: wrap; }
-.tab-btn { background: #edf2f7; color: #4a5568; border: 1px solid #e2e8f0; padding: 10px 24px; border-radius: 12px; cursor: pointer; font-size: 0.95em; font-weight: 600; font-family: inherit; transition: all 0.2s; }
-.tab-btn:hover { background: #e2e8f0; transform: none; box-shadow: none; }
-.tab-btn.active { background: #4299e1; border-color: #4299e1; color: #fff; box-shadow: 0 2px 6px rgba(66,153,225,0.3); }
-.tab-btn.active.test { background: #ed8936; border-color: #ed8936; box-shadow: 0 2px 6px rgba(237,137,54,0.3); }
-@media (max-width: 640px) { body { padding: 12px; } .grid { grid-template-columns: 1fr; } .quick-bar { flex-wrap: wrap; } }
+.text-muted { color: var(--muted); font-size: 0.82em; }
+
+/* ============ Technical (Pruebas) readouts ============ */
+body.theme-tech .status-item .num,
+body.theme-tech .schedule-item .info strong,
+.mono-readout { font-family: 'JetBrains Mono', monospace; }
+
+.param-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+.param-item { display: flex; flex-direction: column; background: var(--surface-2); padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); }
+.param-item label { font-size: 0.72em; color: var(--muted); font-weight: 500; min-width: 0; }
+.param-item input { background: var(--surface); border: 1px solid var(--border); padding: 5px 8px; border-radius: 6px; font-size: 0.85em; font-family: 'JetBrains Mono', monospace; margin-top: 3px; min-height: 32px; }
+
+@media (max-width: 640px) {
+  body { padding: 14px 10px 50px; }
+  .grid { grid-template-columns: 1fr; }
+  .quick-bar { flex-wrap: wrap; }
+  .quick-edit { margin-left: 0; }
+  button { font-size: 0.9em; }
+}
 </style>
 </head>
 <body>
 
-<h1>&#127858; Alimentador PUCP</h1>
-<p class="subtitle">Control y monitoreo del alimentador autom&aacute;tico para mascotas</p>
+<div class="top">
+  <h1>&#128062; SmartPetFeeder</h1>
+  <p class="subtitle">Alimentador autom&aacute;tico PUCP &mdash; control y monitoreo</p>
+</div>
+
+<div class="tab-nav">
+  <button class="tab-btn active" id="tabBtnUsuario" onclick="showTab('usuario')">&#127968; Modo Due&ntilde;o</button>
+  <button class="tab-btn" id="tabBtnPruebas" onclick="showTab('pruebas')">&#128295; Modo T&eacute;cnico</button>
+</div>
 
 <div class="quick-bar" id="quickBar" style="display:none;">
   <button class="quick-btn" id="quickFeedBtn" onclick="quickFeed()">
@@ -96,15 +227,36 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   <span class="quick-edit" onclick="document.getElementById('feedPortions').scrollIntoView({behavior:'smooth'})">Cambiar</span>
 </div>
 
-<div class="tab-nav">
-  <button class="tab-btn active" id="tabBtnUsuario" onclick="showTab('usuario')">🏠 Usuario</button>
-  <button class="tab-btn test" id="tabBtnPruebas" onclick="showTab('pruebas')">🧪 Pruebas / Técnico</button>
-</div>
-
 <div class="grid">
 
+  <!-- Alimentación (hero) -->
+  <div class="card hero" data-tab="usuario">
+    <h2><span class="icon">&#127860;</span> Alimentaci&oacute;n</h2>
+    <div class="row">
+      <label>Porci&oacute;n</label>
+      <select id="feedPortions">
+        <option value="9">9g</option>
+        <option value="18" selected>18g</option>
+        <option value="27">27g</option>
+        <option value="36">36g</option>
+        <option value="45">45g</option>
+        <option value="54">54g</option>
+        <option value="63">63g</option>
+        <option value="72">72g</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Humidificar</label>
+      <label class="switch">
+        <input type="checkbox" id="feedHumidify">
+        <span class="track"></span>
+      </label>
+    </div>
+    <button class="green" onclick="startFeed()" id="feedBtn" style="width:100%;padding:14px;font-size:1.02em;">&#9654; Iniciar Secuencia</button>
+  </div>
+
   <!-- Estado General -->
-  <div class="card" data-tab="usuario">
+  <div class="card aside" data-tab="usuario">
     <h2><span class="icon">&#128200;</span> Estado General</h2>
     <div class="status-grid">
       <div class="status-item">
@@ -129,11 +281,11 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
       </div>
     </div>
     <div class="progress"><div id="seqProgressBar" class="progress-bar" style="width:0%"></div></div>
-    <div id="seqStepName" style="font-size:0.8em;color:#718096;margin-top:6px;min-height:20px;"></div>
+    <div id="seqStepName" style="font-size:0.8em;color:var(--muted);margin-top:6px;min-height:20px;"></div>
   </div>
 
   <!-- Compuertas -->
-  <div class="card" data-tab="pruebas">
+  <div class="card span4" data-tab="pruebas">
     <h2><span class="icon">&#128682;</span> Compuertas</h2>
     <div class="row">
       <label>Superior:</label>
@@ -154,7 +306,7 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   </div>
 
   <!-- Dosificador -->
-  <div class="card" data-tab="pruebas">
+  <div class="card span4" data-tab="pruebas">
     <h2><span class="icon">&#9881;</span> Dosificador</h2>
     <div class="row">
       <label>Gramos:</label>
@@ -172,41 +324,8 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
     </div>
   </div>
 
-  <!-- Secuencia Completa -->
-  <div class="card" data-tab="usuario">
-    <h2><span class="icon">&#127860;</span> Alimentaci&oacute;n</h2>
-    <div class="row">
-      <label>Porci&oacute;n:</label>
-      <select id="feedPortions">
-        <option value="9">9g</option>
-        <option value="18" selected>18g</option>
-        <option value="27">27g</option>
-        <option value="36">36g</option>
-        <option value="45">45g</option>
-        <option value="54">54g</option>
-        <option value="63">63g</option>
-        <option value="72">72g</option>
-      </select>
-    </div>
-    <div class="row">
-      <label>Humidificar:</label>
-      <input type="checkbox" id="feedHumidify" style="width:18px;height:18px;accent-color:#48bb78;">
-    </div>
-    <button class="green" onclick="startFeed()" id="feedBtn" style="width:100%;padding:10px;font-size:0.95em;">&#9654; Iniciar Secuencia</button>
-  </div>
-
-  <!-- Humidificador -->
-  <div class="card" data-tab="pruebas">
-    <h2><span class="icon">&#128167;</span> Humidificador</h2>
-    <div class="row">
-      <button class="green sm" onclick="toggleHumidifier(true)">&#128994; Encender</button>
-      <button class="red sm" onclick="toggleHumidifier(false)">&#128308; Apagar</button>
-      <span id="humidifierStatus" class="badge off">Apagado</span>
-    </div>
-  </div>
-
   <!-- Cámara / Detección de Presencia -->
-  <div class="card" data-tab="pruebas">
+  <div class="card span4" data-tab="pruebas">
     <h2><span class="icon">&#128247;</span> C&aacute;mara / Presencia</h2>
     <div class="status-grid" style="grid-template-columns: 1fr 1fr;">
       <div class="status-item">
@@ -220,12 +339,15 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
     </div>
     <div class="row mt-10">
       <label>Umbral:</label>
-      <input type="number" id="presenceThreshold" value="10" min="1" max="120" style="width:60px;">
+      <input type="number" id="presenceThreshold" value="10" min="1" max="120" style="width:70px;">
       <span class="text-muted">segundos</span>
     </div>
     <div class="row">
-      <label>Solo alimentar con presencia:</label>
-      <input type="checkbox" id="feedOnlyPresence" style="width:18px;height:18px;accent-color:#48bb78;">
+      <label style="min-width:auto;">Solo con presencia:</label>
+      <label class="switch">
+        <input type="checkbox" id="feedOnlyPresence">
+        <span class="track"></span>
+      </label>
     </div>
     <div class="btn-group mt-10">
       <button class="green sm" onclick="startPresence()">&#9654; Iniciar</button>
@@ -234,22 +356,62 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
     <div id="presenceInfo" class="text-muted mt-10" style="min-height:20px;"></div>
   </div>
 
+  <!-- Humidificador -->
+  <div class="card span4" data-tab="pruebas">
+    <h2><span class="icon">&#128167;</span> Humidificador</h2>
+    <div class="row">
+      <button class="green sm" onclick="toggleHumidifier(true)">&#128994; Encender</button>
+      <button class="red sm" onclick="toggleHumidifier(false)">&#128308; Apagar</button>
+      <span id="humidifierStatus" class="badge off">Apagado</span>
+    </div>
+  </div>
+
+  <!-- Horarios -->
+  <div class="card wide" data-tab="usuario">
+    <h2><span class="icon">&#128197;</span> Horarios</h2>
+    <div class="row">
+      <span class="text-muted">Hora del servidor: <strong id="serverTime" class="mono-readout">--:--</strong></span>
+    </div>
+    <div class="row">
+      <label>Hora:</label>
+      <input type="time" id="schedTime" value="08:00">
+      <label>Gramos:</label>
+      <select id="schedPortions">
+        <option value="9">9g</option>
+        <option value="18" selected>18g</option>
+        <option value="27">27g</option>
+        <option value="36">36g</option>
+        <option value="45">45g</option>
+        <option value="54">54g</option>
+        <option value="63">63g</option>
+        <option value="72">72g</option>
+      </select>
+      <label style="min-width:auto;">Humidificar</label>
+      <label class="switch">
+        <input type="checkbox" id="schedHumidify">
+        <span class="track"></span>
+      </label>
+      <button class="blue sm" onclick="addSchedule()">+ Agregar</button>
+    </div>
+    <div id="scheduleList" class="mt-10"></div>
+  </div>
+
   <!-- Faja Transportadora -->
-  <div class="card" data-tab="pruebas">
+  <div class="card span4" data-tab="pruebas">
     <h2><span class="icon">&#128666;</span> Faja Transportadora</h2>
     <div class="row">
       <label>M1:</label>
-      <input type="range" id="beltM1" min="-255" max="255" value="0" style="flex:1;accent-color:#4299e1;">
-      <span id="beltM1Val" style="font-size:0.85em;font-weight:600;min-width:40px;color:#4a5568;">0</span>
+      <input type="range" id="beltM1" min="-255" max="255" value="0" style="flex:1;accent-color:var(--primary);">
+      <span id="beltM1Val" class="mono-readout" style="font-size:0.85em;font-weight:600;min-width:40px;color:var(--ink);">0</span>
     </div>
     <div class="row">
       <label>M2:</label>
-      <input type="range" id="beltM2" min="-255" max="255" value="0" style="flex:1;accent-color:#48bb78;">
-      <span id="beltM2Val" style="font-size:0.85em;font-weight:600;min-width:40px;color:#4a5568;">0</span>
+      <input type="range" id="beltM2" min="-255" max="255" value="0" style="flex:1;accent-color:var(--primary);">
+      <span id="beltM2Val" class="mono-readout" style="font-size:0.85em;font-weight:600;min-width:40px;color:var(--ink);">0</span>
     </div>
     <div class="row">
       <label>Duraci&oacute;n:</label>
-      <select id="beltDuration" style="min-width:80px;">
+      <select id="beltDuration" style="min-width:90px;">
         <option value="0">Manual</option>
         <option value="1">1s</option>
         <option value="2">2s</option>
@@ -266,58 +428,15 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
         <button class="orange sm" onclick="beltBackwardPreset()">Atr&aacute;s</button>
       </div>
     </div>
-    <div class="row" style="justify-content:space-between;font-size:0.82em;color:#718096;">
-      <span>Encoder M1: <strong id="encM1">0</strong></span>
-      <span>Encoder M2: <strong id="encM2">0</strong></span>
+    <div class="row" style="justify-content:space-between;font-size:0.82em;color:var(--muted);">
+      <span class="mono-readout">M1: <strong id="encM1">0</strong></span>
+      <span class="mono-readout">M2: <strong id="encM2">0</strong></span>
       <button class="sm" onclick="beltResetEncoders()" style="font-size:0.8em;">Reset</button>
     </div>
   </div>
 
-  <!-- Horarios -->
-  <div class="card" data-tab="usuario">
-    <h2><span class="icon">&#128197;</span> Horarios</h2>
-    <div class="row">
-      <span class="text-muted">Hora del servidor: <strong id="serverTime">--:--</strong></span>
-    </div>
-    <div class="row">
-      <label>Hora:</label>
-      <input type="time" id="schedTime" value="08:00">
-    </div>
-    <div class="row">
-      <label>Gramos:</label>
-      <select id="schedPortions">
-        <option value="9">9g</option>
-        <option value="18" selected>18g</option>
-        <option value="27">27g</option>
-        <option value="36">36g</option>
-        <option value="45">45g</option>
-        <option value="54">54g</option>
-        <option value="63">63g</option>
-        <option value="72">72g</option>
-      </select>
-    </div>
-    <div class="row">
-      <label>Humidificar:</label>
-      <input type="checkbox" id="schedHumidify" style="width:18px;height:18px;accent-color:#48bb78;">
-    </div>
-    <button class="blue sm" onclick="addSchedule()" style="width:100%;padding:8px;">+ Agregar Horario</button>
-    <div id="scheduleList" class="mt-10"></div>
-  </div>
-
-  <!-- Video -->
-  <div class="card wide" data-tab="usuario">
-    <h2><span class="icon">&#128249;</span> Video en Vivo</h2>
-    <div class="video-container">
-      <img src="/video_feed" alt="Video feed" id="videoFeed" style="background:#2d3748;" onerror="this.dataset.err=1">
-    </div>
-    <div class="row mt-10" style="justify-content:center;">
-      <button class="sm" onclick="refreshVideo()">Reconectar</button>
-      <span class="text-muted">Stream en vivo</span>
-    </div>
-  </div>
-
   <!-- Faja Avanzada -->
-  <div class="card" data-tab="pruebas">
+  <div class="card span4" data-tab="pruebas">
     <h2><span class="icon">&#9881;</span> Faja Avanzada</h2>
     <div class="row">
       <span>Estado: <span id="beltBusyBadge" class="badge idle">Libre</span></span>
@@ -330,10 +449,22 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   </div>
 
   <!-- Parametros Faja -->
-  <div class="card wide" data-tab="pruebas">
-    <h2><span class="icon">&#128295;</span> Parametros Faja <button class="sm" onclick="loadBeltParams()" style="margin-left:auto;">Recargar</button></h2>
+  <div class="card span4" data-tab="pruebas">
+    <h2><span class="icon">&#128295;</span> Par&aacute;metros <button class="sm rec-btn" onclick="loadBeltParams()">Recargar</button></h2>
     <div id="beltParamsContainer" class="param-grid" style="margin-bottom:10px;"></div>
-    <button class="green sm" onclick="saveBeltParams()">Guardar Parametros</button>
+    <button class="green sm" onclick="saveBeltParams()">Guardar Par&aacute;metros</button>
+  </div>
+
+  <!-- Video -->
+  <div class="card wide" data-tab="usuario">
+    <h2><span class="icon">&#128249;</span> Video en Vivo</h2>
+    <div class="video-container">
+      <img src="/video_feed" alt="Video feed" id="videoFeed" onerror="this.dataset.err=1">
+    </div>
+    <div class="row mt-10" style="justify-content:center;">
+      <button class="sm" onclick="refreshVideo()">Reconectar</button>
+      <span class="text-muted">Stream en vivo</span>
+    </div>
   </div>
 
   <!-- Historial -->
@@ -428,7 +559,6 @@ async function testDosifier() {
 function saveLastFeed(portions, humidify) {
   const data = { portions, humidify, ts: Date.now() };
   localStorage.setItem(LAST_FEED_KEY, JSON.stringify(data));
-  // Also save to server for the physical button
   fetch('/api/last-feed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ portions, humidify }) }).catch(function(){});
 }
 
@@ -698,15 +828,13 @@ async function addSchedule() {
   const portions = parseInt(document.getElementById('schedPortions').value);
   const humidify = document.getElementById('schedHumidify').checked;
   const res = await api('POST', '/schedules', { time, portions, humidify });
-  if (res && res.id) { toast('Horario agregado'); await loadSchedules();
-loadBeltParams(); }
+  if (res && res.id) { toast('Horario agregado'); await loadSchedules(); }
   else toast('Error al agregar horario', true);
 }
 
 async function deleteSchedule(id) {
   const res = await api('DELETE', '/schedules/' + id);
-  if (res) { toast('Horario eliminado'); await loadSchedules();
-loadBeltParams(); }
+  if (res) { toast('Horario eliminado'); await loadSchedules(); }
 }
 
 // --- Detectar fin de secuencia ---
@@ -791,6 +919,7 @@ async function pollStatus() {
 // --- Tabs Usuario / Pruebas ---
 function showTab(name) {
   localStorage.setItem('feeder_tab', name);
+  document.body.classList.toggle('theme-tech', name === 'pruebas');
   document.getElementById('tabBtnUsuario').classList.toggle('active', name === 'usuario');
   document.getElementById('tabBtnPruebas').classList.toggle('active', name === 'pruebas');
   document.querySelectorAll('.grid .card[data-tab]').forEach(function(card) {
