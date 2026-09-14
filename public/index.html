@@ -277,6 +277,9 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   <div class="card" data-tab="usuario">
     <h2><span class="icon">&#128197;</span> Horarios</h2>
     <div class="row">
+      <span class="text-muted">Hora del servidor: <strong id="serverTime">--:--</strong></span>
+    </div>
+    <div class="row">
       <label>Hora:</label>
       <input type="time" id="schedTime" value="08:00">
     </div>
@@ -658,6 +661,13 @@ async function updateFeedOnlyPresence() {
 }
 
 // --- Horarios ---
+async function pollServerTime() {
+  const res = await api('GET', '/api/server-time');
+  if (res && res.time) {
+    document.getElementById('serverTime').textContent = res.time.slice(0, 5);
+  }
+}
+
 async function loadSchedules() {
   const res = await api('GET', '/schedules');
   if (!res) return;
@@ -789,6 +799,8 @@ setInterval(pollBeltBusy, 2000);
 setInterval(pollPresence, 3000);
 setInterval(loadSchedules, 10000);
 setInterval(loadFeedLog, 15000);
+setInterval(pollServerTime, 15000);
+pollServerTime();
 loadSchedules();
 loadBeltParams();
 

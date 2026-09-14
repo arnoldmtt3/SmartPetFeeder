@@ -202,7 +202,10 @@ function stopDispenser() {
 
 // ─── Feeding sequence ─────────────────────────────────────────────
 async function runFeedingSequence(portions = 18, humidify = false) {
-  if (state.sequence_running) return;
+  if (state.sequence_running) {
+    console.log('[SECUENCIA] Ignorada: ya hay una en curso');
+    return;
+  }
   state.sequence_running = true;
   state.sequence_success = false;
   state.sequence_step = 0;
@@ -307,22 +310,39 @@ function saveSchedules(list) {
   const tx = db.transaction((items) => { for (const s of items) insert.run(s.id, s.hour, s.minute, s.portions, s.humidify ? 1 : 0); });
   tx(list);
 }
+// Claves de horarios ya disparados (id + fecha + hora), para no repetir
+// dentro del mismo minuto aunque el tick corra varias veces.
+const firedScheduleKeys = new Set();
+
 function checkSchedules() {
   const now = new Date();
   const h = now.getHours();
   const m = now.getMinutes();
-  const schedules = loadSchedules();
-  let changed = false;
+  const dayKey = now.toISOString().slice(0, 10);
+  let schedules;
+  try {
+    schedules = loadSchedules();
+  } catch (e) {
+    console.error('[HORARIO] Error cargando horarios:', e.message);
+    return;
+  }
   schedules.forEach((s) => {
-    if (s.hour === h && s.minute === m && !s._fired) {
-      s._fired = true;
-      changed = true;
-      console.log(`[HORARIO] Ejecutando: ${s.portions}g`);
-      runFeedingSequence(s.portions, s.humidify);
+    if (s.hour !== h || s.minute !== m) return;
+    const key = `${s.id}@${dayKey} ${h}:${m}`;
+    if (firedScheduleKeys.has(key)) return;
+    firedScheduleKeys.add(key);
+    // Limpiar claves viejas para no crecer sin límite
+    if (firedScheduleKeys.size > 500) {
+      const oldest = [...firedScheduleKeys].slice(0, firedScheduleKeys.size - 500);
+      oldest.forEach((k) => firedScheduleKeys.delete(k));
     }
-    if (s.minute !== m) s._fired = false;
+    if (state.sequence_running) {
+      console.log(`[HORARIO] Omitido ${s.portions}g: secuencia ya en curso`);
+      return;
+    }
+    console.log(`[HORARIO] Ejecutando: ${s.portions}g (humidify=${!!s.humidify})`);
+    runFeedingSequence(s.portions, s.humidify);
   });
-  if (changed) saveSchedules(schedules);
 }
 
 // ─── WebSocket ─────────────────────────────────────────────────────
@@ -442,6 +462,17 @@ app.delete('/schedules/:id', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Hora del servidor (para verificar zona horaria vs horarios)
+app.get('/api/server-time', (req, res) => {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  res.json({
+    time: `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`,
+    date: now.toLocaleDateString('es-PE'),
+    timezone_offset_min: now.getTimezoneOffset()
+  });
+});
+
 // Feed log
 app.get('/api/feed-log', (req, res) => {
   try {
@@ -529,7 +560,8 @@ if (i2cOk) {
   console.log('[WARN] PCA9685 no detectado - servos deshabilitados');
 }
 
-setInterval(checkSchedules, 60000);
+setInterval(checkSchedules, 15000);
+checkSchedules();
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor: http://localhost:${PORT}`);
