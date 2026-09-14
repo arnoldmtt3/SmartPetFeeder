@@ -74,6 +74,11 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
 .param-item { display: flex; flex-direction: column; background: #f7fafc; padding: 6px 10px; border-radius: 8px; }
 .param-item label { font-size: 0.75em; color: #718096; font-weight: 500; }
 .param-item input { background: #fff; border: 1px solid #e2e8f0; padding: 4px 8px; border-radius: 6px; font-size: 0.85em; font-family: inherit; margin-top: 2px; }
+.tab-nav { display: flex; gap: 8px; justify-content: center; max-width: 1400px; margin: 0 auto 16px; flex-wrap: wrap; }
+.tab-btn { background: #edf2f7; color: #4a5568; border: 1px solid #e2e8f0; padding: 10px 24px; border-radius: 12px; cursor: pointer; font-size: 0.95em; font-weight: 600; font-family: inherit; transition: all 0.2s; }
+.tab-btn:hover { background: #e2e8f0; transform: none; box-shadow: none; }
+.tab-btn.active { background: #4299e1; border-color: #4299e1; color: #fff; box-shadow: 0 2px 6px rgba(66,153,225,0.3); }
+.tab-btn.active.test { background: #ed8936; border-color: #ed8936; box-shadow: 0 2px 6px rgba(237,137,54,0.3); }
 @media (max-width: 640px) { body { padding: 12px; } .grid { grid-template-columns: 1fr; } .quick-bar { flex-wrap: wrap; } }
 </style>
 </head>
@@ -91,10 +96,15 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   <span class="quick-edit" onclick="document.getElementById('feedPortions').scrollIntoView({behavior:'smooth'})">Cambiar</span>
 </div>
 
+<div class="tab-nav">
+  <button class="tab-btn active" id="tabBtnUsuario" onclick="showTab('usuario')">🏠 Usuario</button>
+  <button class="tab-btn test" id="tabBtnPruebas" onclick="showTab('pruebas')">🧪 Pruebas / Técnico</button>
+</div>
+
 <div class="grid">
 
   <!-- Estado General -->
-  <div class="card">
+  <div class="card" data-tab="usuario">
     <h2><span class="icon">&#128200;</span> Estado General</h2>
     <div class="status-grid">
       <div class="status-item">
@@ -123,7 +133,7 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   </div>
 
   <!-- Compuertas -->
-  <div class="card">
+  <div class="card" data-tab="pruebas">
     <h2><span class="icon">&#128682;</span> Compuertas</h2>
     <div class="row">
       <label>Superior:</label>
@@ -144,7 +154,7 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   </div>
 
   <!-- Dosificador -->
-  <div class="card">
+  <div class="card" data-tab="pruebas">
     <h2><span class="icon">&#9881;</span> Dosificador</h2>
     <div class="row">
       <label>Gramos:</label>
@@ -163,7 +173,7 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   </div>
 
   <!-- Secuencia Completa -->
-  <div class="card">
+  <div class="card" data-tab="usuario">
     <h2><span class="icon">&#127860;</span> Alimentaci&oacute;n</h2>
     <div class="row">
       <label>Porci&oacute;n:</label>
@@ -186,7 +196,7 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   </div>
 
   <!-- Humidificador -->
-  <div class="card">
+  <div class="card" data-tab="usuario">
     <h2><span class="icon">&#128167;</span> Humidificador</h2>
     <div class="row">
       <button class="green sm" onclick="toggleHumidifier(true)">&#128994; Encender</button>
@@ -196,7 +206,7 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   </div>
 
   <!-- Cámara / Detección de Presencia -->
-  <div class="card">
+  <div class="card" data-tab="pruebas">
     <h2><span class="icon">&#128247;</span> C&aacute;mara / Presencia</h2>
     <div class="status-grid" style="grid-template-columns: 1fr 1fr;">
       <div class="status-item">
@@ -225,7 +235,7 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   </div>
 
   <!-- Faja Transportadora -->
-  <div class="card">
+  <div class="card" data-tab="pruebas">
     <h2><span class="icon">&#128666;</span> Faja Transportadora</h2>
     <div class="row">
       <label>M1:</label>
@@ -264,7 +274,7 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   </div>
 
   <!-- Horarios -->
-  <div class="card">
+  <div class="card" data-tab="usuario">
     <h2><span class="icon">&#128197;</span> Horarios</h2>
     <div class="row">
       <label>Hora:</label>
@@ -292,7 +302,7 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   </div>
 
   <!-- Video -->
-  <div class="card wide">
+  <div class="card wide" data-tab="usuario">
     <h2><span class="icon">&#128249;</span> Video en Vivo</h2>
     <div class="video-container">
       <img src="/video_feed" alt="Video feed" id="videoFeed" style="background:#2d3748;">
@@ -300,7 +310,7 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   </div>
 
   <!-- Faja Avanzada -->
-  <div class="card">
+  <div class="card" data-tab="pruebas">
     <h2><span class="icon">&#9881;</span> Faja Avanzada</h2>
     <div class="row">
       <span>Estado: <span id="beltBusyBadge" class="badge idle">Libre</span></span>
@@ -313,14 +323,14 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   </div>
 
   <!-- Parametros Faja -->
-  <div class="card wide">
+  <div class="card wide" data-tab="pruebas">
     <h2><span class="icon">&#128295;</span> Parametros Faja <button class="sm" onclick="loadBeltParams()" style="margin-left:auto;">Recargar</button></h2>
     <div id="beltParamsContainer" class="param-grid" style="margin-bottom:10px;"></div>
     <button class="green sm" onclick="saveBeltParams()">Guardar Parametros</button>
   </div>
 
   <!-- Historial -->
-  <div class="card wide">
+  <div class="card wide" data-tab="usuario">
     <h2><span class="icon">&#128196;</span> Historial de Alimentaci&oacute;n</h2>
     <div class="flex" style="justify-content:space-between;margin-bottom:8px;">
       <span class="text-muted" id="logCount">0 registros</span>
@@ -755,7 +765,18 @@ async function pollStatus() {
   }
 }
 
+// --- Tabs Usuario / Pruebas ---
+function showTab(name) {
+  localStorage.setItem('feeder_tab', name);
+  document.getElementById('tabBtnUsuario').classList.toggle('active', name === 'usuario');
+  document.getElementById('tabBtnPruebas').classList.toggle('active', name === 'pruebas');
+  document.querySelectorAll('.grid .card[data-tab]').forEach(function(card) {
+    card.style.display = (card.getAttribute('data-tab') === name) ? '' : 'none';
+  });
+}
+
 // --- Inicio ---
+showTab(localStorage.getItem('feeder_tab') || 'usuario');
 loadFeedLog();
 loadLastFeedFromServer();
 updateQuickBar();
