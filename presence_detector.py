@@ -318,6 +318,50 @@ def camera_upload():
         return jsonify({'error': str(e)}), 500
 
 
+# ─── Snapshot para video en vivo ────────────────────────────────────
+
+@app.route('/snapshot')
+def snapshot():
+    """Devuelve el frame actual como JPEG (para el video en vivo)."""
+    frame = None
+    if state.test_mode:
+        # Imagen de prueba con el estado actual
+        img = np.zeros((360, 480, 3), dtype=np.uint8)
+        img[:] = (60, 60, 60)
+        with state.lock:
+            motion = state.motion_detected
+            secs = state.presence_seconds
+            threshold = state.presence_threshold
+            confirmed = state.presence_confirmed
+        cv2.putText(img, 'MODO PRUEBA', (140, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, (150, 150, 150), 2)
+        if confirmed:
+            cv2.putText(img, 'MASCOTA DETECTADA', (70, 170),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+        elif motion:
+            cv2.putText(img, f'Movimiento {secs}s/{threshold}s', (70, 170),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
+        else:
+            cv2.putText(img, 'Sin movimiento', (110, 170),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (200, 200, 200), 2)
+        ts = datetime.now().strftime('%H:%M:%S')
+        cv2.putText(img, ts, (190, 320),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (120, 120, 120), 1)
+        frame = img
+    elif state.camera_connected and state.cap is not None:
+        ret, f = state.cap.read()
+        if ret and f is not None:
+            frame = f
+
+    if frame is None:
+        return jsonify({'error': 'Sin imagen disponible'}), 503
+    ok, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+    if not ok:
+        return jsonify({'error': 'No se pudo codificar'}), 500
+    from flask import Response
+    return Response(buf.tobytes(), mimetype='image/jpeg')
+
+
 # ─── Endpoints de prueba ──────────────────────────────────────────
 
 @app.route('/test/start')

@@ -432,8 +432,17 @@ app.get('/sequence_status', (req, res) => res.json({
   progress_pct: state.sequence_progress_pct,
 }));
 
-// Video
-app.get('/video_feed', (req, res) => res.status(503).send('Camara no conectada'));
+// Video en vivo: snapshot de la fuente actual del detector
+app.get('/video_feed', (req, res) => {
+  http.get('http://127.0.0.1:5001/snapshot', (pres) => {
+    if (pres.statusCode !== 200) {
+      res.status(503).send('Camara no conectada');
+      return;
+    }
+    res.set('Content-Type', 'image/jpeg');
+    pres.pipe(res);
+  }).on('error', () => res.status(503).send('Camara no conectada'));
+});
 
 // Last feed
 app.get('/api/last-feed', (req, res) => {

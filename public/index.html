@@ -332,7 +332,11 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
   <div class="card wide" data-tab="usuario">
     <h2><span class="icon">&#128249;</span> Video en Vivo</h2>
     <div class="video-container">
-      <img src="/video_feed" alt="Video feed" id="videoFeed" style="background:#2d3748;">
+      <img src="/video_feed" alt="Video feed" id="videoFeed" style="background:#2d3748;" onerror="this.dataset.err=1">
+    </div>
+    <div class="row mt-10" style="justify-content:center;">
+      <button class="sm" onclick="refreshVideo()">Actualizar</button>
+      <span class="text-muted">Auto: cada 2s</span>
     </div>
   </div>
 
@@ -874,8 +878,15 @@ function showTab(name) {
   });
 }
 
+// --- Video en vivo ---
+function refreshVideo() {
+  const img = document.getElementById('videoFeed');
+  if (img) img.src = '/video_feed?t=' + Date.now();
+}
+
 // --- Inicio ---
 showTab(localStorage.getItem('feeder_tab') || 'usuario');
+setInterval(refreshVideo, 2000);
 loadFeedLog();
 loadLastFeedFromServer();
 updateQuickBar();
