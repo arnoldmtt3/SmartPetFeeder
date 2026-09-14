@@ -363,8 +363,17 @@ app.post('/dosifier/test', (req, res) => {
 });
 
 // Feed
-app.post('/feed', (req, res) => {
+app.post('/feed', async (req, res) => {
   const { portions = 18, humidify = false } = req.body;
+
+  // Verificar presencia si está activado
+  if (presenceState.feed_only_with_presence) {
+    const presence = await fetchPresence('/status');
+    if (!presence || !presence.presence_confirmed) {
+      return res.json({ status: 'rejected', message: 'No se detectó mascota cerca' });
+    }
+  }
+
   runFeedingSequence(portions, humidify);
   res.json({ status: 'started' });
 });
@@ -439,6 +448,64 @@ app.get('/api/feed-log', (req, res) => {
     const rows = db.prepare('SELECT date, time, portions, humidify, status FROM feed_log ORDER BY id DESC LIMIT 50').all();
     res.json(rows);
   } catch { res.json([]); }
+});
+
+// ─── Presence Detection (proxy a Python detector) ──────────────────
+const PRESENCE_URL = 'http://127.0.0.1:5001';
+const presenceState = { enabled: false, feed_only_with_presence: false };
+
+function fetchPresence(path) {
+  return new Promise((resolve) => {
+    http.get(PRESENCE_URL + path, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
+    }).on('error', () => resolve(null));
+  });
+}
+
+app.get('/api/presence', async (req, res) => {
+  const status = await fetchPresence('/status');
+  if (!status) return res.json({ camera: false, monitoring: false, detected: false });
+  res.json({
+    camera: status.camera,
+    monitoring: status.monitoring,
+    detected: status.presence_confirmed,
+    presence_seconds: status.presence_seconds,
+    threshold: status.presence_threshold,
+    last_detection: status.last_detection
+  });
+});
+
+app.post('/api/presence/start', async (req, res) => {
+  const result = await fetchPresence('/start');
+  presenceState.enabled = true;
+  res.json(result || { error: 'Detector no disponible' });
+});
+
+app.post('/api/presence/stop', async (req, res) => {
+  const result = await fetchPresence('/stop');
+  presenceState.enabled = false;
+  res.json(result || { error: 'Detector no disponible' });
+});
+
+app.post('/api/presence/threshold', (req, res) => {
+  const { seconds } = req.body;
+  if (!seconds || seconds < 1 || seconds > 120) {
+    return res.status(400).json({ error: 'Valor debe ser entre 1 y 120' });
+  }
+  fetchPresence('/threshold/' + seconds).then((result) => {
+    res.json(result || { error: 'Detector no disponible' });
+  });
+});
+
+app.post('/api/presence/feed-only', (req, res) => {
+  presenceState.feed_only_with_presence = !!req.body.enabled;
+  res.json({ feed_only_with_presence: presenceState.feed_only_with_presence });
+});
+
+app.get('/api/presence/feed-only', (req, res) => {
+  res.json({ feed_only_with_presence: presenceState.feed_only_with_presence });
 });
 
 // WebSocket

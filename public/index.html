@@ -195,6 +195,35 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
     </div>
   </div>
 
+  <!-- Cámara / Detección de Presencia -->
+  <div class="card">
+    <h2><span class="icon">&#128247;</span> C&aacute;mara / Presencia</h2>
+    <div class="status-grid" style="grid-template-columns: 1fr 1fr;">
+      <div class="status-item">
+        <div class="num"><span id="cameraBadge" class="badge closed">Desconectada</span></div>
+        <div class="lbl">C&aacute;mara</div>
+      </div>
+      <div class="status-item">
+        <div class="num"><span id="presenceBadge" class="badge off">Sin presencia</span></div>
+        <div class="lbl">Presencia</div>
+      </div>
+    </div>
+    <div class="row mt-10">
+      <label>Umbral:</label>
+      <input type="number" id="presenceThreshold" value="10" min="1" max="120" style="width:60px;">
+      <span class="text-muted">segundos</span>
+    </div>
+    <div class="row">
+      <label>Solo alimentar con presencia:</label>
+      <input type="checkbox" id="feedOnlyPresence" style="width:18px;height:18px;accent-color:#48bb78;">
+    </div>
+    <div class="btn-group mt-10">
+      <button class="green sm" onclick="startPresence()">&#9654; Iniciar</button>
+      <button class="red sm" onclick="stopPresence()">&#9632; Detener</button>
+    </div>
+    <div id="presenceInfo" class="text-muted mt-10" style="min-height:20px;"></div>
+  </div>
+
   <!-- Faja Transportadora -->
   <div class="card">
     <h2><span class="icon">&#128666;</span> Faja Transportadora</h2>
@@ -556,6 +585,68 @@ async function pollBeltStatus() {
   }
 }
 
+// --- Presencia / Cámara ---
+async function pollPresence() {
+  const res = await api('GET', '/api/presence');
+  if (!res) {
+    document.getElementById('cameraBadge').textContent = 'Detector offline';
+    document.getElementById('cameraBadge').className = 'badge closed';
+    document.getElementById('presenceBadge').textContent = 'Sin datos';
+    document.getElementById('presenceBadge').className = 'badge off';
+    return;
+  }
+
+  const camBadge = document.getElementById('cameraBadge');
+  camBadge.textContent = res.camera ? 'Conectada' : 'Desconectada';
+  camBadge.className = 'badge ' + (res.camera ? 'open' : 'closed');
+
+  const presBadge = document.getElementById('presenceBadge');
+  if (res.monitoring) {
+    if (res.detected) {
+      presBadge.textContent = 'Mascota detectada';
+      presBadge.className = 'badge open';
+    } else {
+      presBadge.textContent = 'Monitoreando...';
+      presBadge.className = 'badge running';
+    }
+  } else {
+    presBadge.textContent = 'Inactivo';
+    presBadge.className = 'badge off';
+  }
+
+  const info = document.getElementById('presenceInfo');
+  if (res.monitoring) {
+    info.textContent = 'Presencia: ' + res.presence_seconds + 's / ' + res.threshold + 's' +
+      (res.last_detection ? ' | Última: ' + res.last_detection : '');
+  } else {
+    info.textContent = '';
+  }
+
+  document.getElementById('presenceThreshold').value = res.threshold || 10;
+}
+
+async function startPresence() {
+  const threshold = parseInt(document.getElementById('presenceThreshold').value) || 10;
+  await api('POST', '/api/presence/threshold', { seconds: threshold });
+  const res = await api('POST', '/api/presence/start');
+  if (res && res.camera) {
+    toast('Monitoreo de presencia iniciado');
+    updateFeedOnlyPresence();
+  } else {
+    toast(res?.error || 'Error: cámara no conectada', true);
+  }
+}
+
+async function stopPresence() {
+  await api('POST', '/api/presence/stop');
+  toast('Monitoreo detenido');
+}
+
+async function updateFeedOnlyPresence() {
+  const enabled = document.getElementById('feedOnlyPresence').checked;
+  await api('POST', '/api/presence/feed-only', { enabled });
+}
+
 // --- Horarios ---
 async function loadSchedules() {
   const res = await api('GET', '/schedules');
@@ -670,13 +761,18 @@ loadLastFeedFromServer();
 updateQuickBar();
 pollStatus();
 pollBeltStatus();
+pollPresence();
 setInterval(pollStatus, POLL_INTERVAL);
 setInterval(pollBeltStatus, 3000);
 setInterval(pollBeltBusy, 2000);
+setInterval(pollPresence, 3000);
 setInterval(loadSchedules, 10000);
 setInterval(loadFeedLog, 15000);
 loadSchedules();
 loadBeltParams();
+
+// Listener para checkbox de "solo alimentar con presencia"
+document.getElementById('feedOnlyPresence').addEventListener('change', updateFeedOnlyPresence);
 </script>
 </body>
 </html>
