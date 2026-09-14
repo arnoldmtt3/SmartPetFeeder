@@ -79,9 +79,18 @@ db.exec(`
     portions TEXT,
     humidify TEXT,
     status TEXT,
+    source TEXT DEFAULT 'manual',
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
 `);
+
+// Migración para bases de datos creadas antes de la columna source
+try {
+  db.exec("ALTER TABLE feed_log ADD COLUMN source TEXT DEFAULT 'manual'");
+  console.log('[DB] Migración: columna source agregada a feed_log');
+} catch {
+  // La columna ya existe, nada que hacer
+}
 
 const feedLog = [];
 
@@ -201,7 +210,7 @@ function stopDispenser() {
 }
 
 // ─── Feeding sequence ─────────────────────────────────────────────
-async function runFeedingSequence(portions = 18, humidify = false) {
+async function runFeedingSequence(portions = 18, humidify = false, source = 'manual') {
   if (state.sequence_running) {
     console.log('[SECUENCIA] Ignorada: ya hay una en curso');
     return;
@@ -248,12 +257,12 @@ async function runFeedingSequence(portions = 18, humidify = false) {
 
     state.sequence_success = true;
     updateStep(7, 'Comida servida', 100);
-    addFeedLogEntry(portions, humidify, true);
-    console.log(`[SECUENCIA] Completada: ${portions}g`);
+    addFeedLogEntry(portions, humidify, true, source);
+    console.log(`[SECUENCIA] Completada: ${portions}g (origen=${source})`);
   } catch (e) {
     console.error('[SECUENCIA] Error:', e.message);
     state.sequence_success = false;
-    addFeedLogEntry(portions, humidify, false);
+    addFeedLogEntry(portions, humidify, false, source);
   } finally {
     setTimeout(() => {
       state.sequence_running = false;
@@ -277,21 +286,26 @@ function delay(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// Orígenes válidos de alimentación
+const FEED_SOURCES = ['manual', 'horario', 'presencia'];
+
 // ─── Feed log ──────────────────────────────────────────────────────
-function addFeedLogEntry(portions, humidify, success) {
+function addFeedLogEntry(portions, humidify, success, source = 'manual') {
+  if (!FEED_SOURCES.includes(source)) source = 'manual';
   const entry = {
     date: new Date().toLocaleDateString('es-PE'),
     time: new Date().toLocaleTimeString('es-PE'),
     portions: portions + 'g',
     humidify: humidify ? 'Si' : 'No',
     status: success ? 'Completada' : 'Fallida',
+    source,
   };
   feedLog.unshift(entry);
   if (feedLog.length > 100) feedLog.length = 100;
 
   try {
-    db.prepare('INSERT INTO feed_log (date, time, portions, humidify, status) VALUES (?, ?, ?, ?, ?)')
-      .run(entry.date, entry.time, entry.portions, entry.humidify, entry.status);
+    db.prepare('INSERT INTO feed_log (date, time, portions, humidify, status, source) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(entry.date, entry.time, entry.portions, entry.humidify, entry.status, entry.source);
   } catch (e) {
     console.error('[DB] Error guardando log:', e.message);
   }
@@ -341,7 +355,7 @@ function checkSchedules() {
       return;
     }
     console.log(`[HORARIO] Ejecutando: ${s.portions}g (humidify=${!!s.humidify})`);
-    runFeedingSequence(s.portions, s.humidify);
+    runFeedingSequence(s.portions, s.humidify, 'horario');
   });
 }
 
@@ -385,6 +399,7 @@ app.post('/dosifier/test', (req, res) => {
 // Feed
 app.post('/feed', async (req, res) => {
   const { portions = 18, humidify = false } = req.body;
+  let source = 'manual';
 
   // Verificar presencia si está activado
   if (presenceState.feed_only_with_presence) {
@@ -392,10 +407,11 @@ app.post('/feed', async (req, res) => {
     if (!presence || !presence.presence_confirmed) {
       return res.json({ status: 'rejected', message: 'No se detectó mascota cerca' });
     }
+    source = 'presencia';
   }
 
-  runFeedingSequence(portions, humidify);
-  res.json({ status: 'started' });
+  runFeedingSequence(portions, humidify, source);
+  res.json({ status: 'started', source });
 });
 
 // Humidifier
@@ -476,7 +492,7 @@ app.get('/api/server-time', (req, res) => {
 // Feed log
 app.get('/api/feed-log', (req, res) => {
   try {
-    const rows = db.prepare('SELECT date, time, portions, humidify, status FROM feed_log ORDER BY id DESC LIMIT 50').all();
+    const rows = db.prepare("SELECT date, time, portions, humidify, status, COALESCE(source, 'manual') AS source FROM feed_log ORDER BY id DESC LIMIT 50").all();
     res.json(rows);
   } catch { res.json([]); }
 });

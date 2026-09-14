@@ -340,8 +340,8 @@ button.sm { padding: 5px 12px; font-size: 0.8em; }
       <button class="red sm" onclick="clearLog()">Limpiar historial</button>
     </div>
     <table class="log-table">
-      <thead><tr><th>Fecha</th><th>Hora</th><th>Porci&oacute;n</th><th>Humidificar</th><th>Estado</th></tr></thead>
-      <tbody id="logBody"><tr><td class="empty" colspan="5">A&uacute;n no hay registros de alimentaci&oacute;n</td></tr></tbody>
+      <thead><tr><th>Fecha</th><th>Hora</th><th>Porci&oacute;n</th><th>Humidificar</th><th>Origen</th><th>Estado</th></tr></thead>
+      <tbody id="logBody"><tr><td class="empty" colspan="6">A&uacute;n no hay registros de alimentaci&oacute;n</td></tr></tbody>
     </table>
   </div>
 
@@ -386,10 +386,17 @@ async function loadFeedLog() {
   const count = document.getElementById('logCount');
   count.textContent = res.length + ' registro' + (res.length !== 1 ? 's' : '');
   if (res.length === 0) {
-    tbody.innerHTML = '<tr><td class="empty" colspan="5">A&uacute;n no hay registros de alimentaci&oacute;n</td></tr>';
+    tbody.innerHTML = '<tr><td class="empty" colspan="6">A&uacute;n no hay registros de alimentaci&oacute;n</td></tr>';
     return;
   }
-  tbody.innerHTML = res.map(e => '<tr><td>' + e.date + '</td><td>' + e.time + '</td><td>' + e.portions + '</td><td>' + e.humidify + '</td><td><span class="badge ' + (e.status === 'Completada' ? 'success' : 'closed') + '">' + e.status + '</span></td></tr>').join('');
+  const sourceLabels = { manual: 'Manual', horario: 'Horario', presencia: 'Presencia' };
+  const sourceClass = { manual: 'idle', horario: 'running', presencia: 'open' };
+  tbody.innerHTML = res.map(e => {
+    const src = e.source || 'manual';
+    const srcLabel = sourceLabels[src] || 'Manual';
+    const srcCls = sourceClass[src] || 'idle';
+    return '<tr><td>' + e.date + '</td><td>' + e.time + '</td><td>' + e.portions + '</td><td>' + e.humidify + '</td><td><span class="badge ' + srcCls + '">' + srcLabel + '</span></td><td><span class="badge ' + (e.status === 'Completada' ? 'success' : 'closed') + '">' + e.status + '</span></td></tr>';
+  }).join('');
 }
 
 function clearLog() {
