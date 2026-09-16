@@ -861,11 +861,11 @@ async function pollPresence() {
     } else if (!res.monitoring) {
       bCls = 'idle'; bMsg = 'Detección de presencia inactiva'; bEye = '&#128065;';
     } else if (res.detected) {
-      bCls = 'detected'; bMsg = '&#128062; ¡Mascota detectada! Presencia: ' + res.presence_seconds + 's'; bEye = '&#128062;';
+      bCls = 'detected'; bMsg = '¡Mascota detectada! Presencia: ' + res.presence_seconds + 's'; bEye = '&#128062;';
     } else {
       bCls = 'watching';
       const autoOn = document.getElementById('autoFeedPresence') && document.getElementById('autoFeedPresence').checked;
-      bMsg = autoOn ? '&#128065; Monitoreando: se alimentar&aacute; al detectar a la mascota' : 'Monitoreando presencia...';
+      bMsg = autoOn ? 'Monitoreando: se alimentará al detectar a la mascota' : 'Monitoreando presencia...';
       bEye = '&#128065;';
     }
     banner.className = 'presence-banner ' + bCls;
