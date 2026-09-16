@@ -247,7 +247,7 @@ body.theme-tech .schedule-item .info strong,
 
 <div class="quick-bar" id="quickBar" style="display:none;">
   <button class="quick-btn" id="quickFeedBtn" onclick="quickFeed()">
-    <span class="quick-icon">&#127858;</span>
+    <span class="quick-icon">&#128062;</span>
     <span class="quick-text" id="quickFeedText">Alimentar</span>
   </button>
   <span class="quick-info" id="quickFeedInfo"></span>
@@ -645,15 +645,20 @@ function getLastFeed() {
 function updateQuickBar() {
   const last = getLastFeed();
   const bar = document.getElementById('quickBar');
-  const text = document.getElementById('quickFeedText');
   const info = document.getElementById('quickFeedInfo');
   if (last) {
     bar.style.display = 'flex';
-    text.textContent = 'Alimentar ' + last.portions + 'g' + (last.humidify ? ' con humidificación' : '');
-    info.innerHTML = last.humidify ? '&#128167; con humidificación' : 'sin humidificación';
+    info.textContent = last.portions + 'g' + (last.humidify ? ' · con humidificación' : ' · sin humidificación');
   } else {
     bar.style.display = 'none';
   }
+}
+
+function updateQuickSelected() {
+  const portions = parseInt(document.getElementById('feedPortions').value) || 18;
+  const humidify = document.getElementById('feedHumidify').checked;
+  saveLastFeed(portions, humidify);
+  updateQuickBar();
 }
 
 async function loadLastFeedFromServer() {
@@ -1130,6 +1135,9 @@ pollConsumption();
 document.getElementById('feedOnlyPresence').addEventListener('change', updateFeedOnlyPresence);
 document.getElementById('autoFeedPresence').addEventListener('change', updatePresenceAutoFeed);
 document.getElementById('autoFeedCooldown').addEventListener('change', updatePresenceAutoFeed);
+// El botón rápido se sincroniza con el selector de porción / humidificar
+document.getElementById('feedPortions').addEventListener('change', updateQuickSelected);
+document.getElementById('feedHumidify').addEventListener('change', updateQuickSelected);
 loadPresenceAutoFeed();
 </script>
 </body>
