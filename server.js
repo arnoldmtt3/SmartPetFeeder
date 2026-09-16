@@ -638,11 +638,21 @@ function fetchPresence(path) {
 }
 
 // Verifica cada 5s si hay mascota confirmada -> dispara secuencia
+let lastCooldownLogAt = 0;
 async function checkPresenceFeed() {
   if (!presenceAutoFeed.enabled) return;
   if (state.sequence_running) return;
   const now = Date.now();
-  if (now - presenceAutoFeed.last_fire_at < presenceAutoFeed.cooldown_min * 60000) return;
+  const cooldownLeft = now - presenceAutoFeed.last_fire_at;
+  if (cooldownLeft < presenceAutoFeed.cooldown_min * 60000) {
+    const status = await fetchPresence('/status');
+    if (status && status.presence_confirmed && now - lastCooldownLogAt > 30000) {
+      const remain = Math.ceil((presenceAutoFeed.cooldown_min * 60000 - cooldownLeft) / 60000);
+      console.log(`[PRESENCIA] Mascota detectada pero auto-alimentación en cooldown (faltan ${remain} min)`);
+      lastCooldownLogAt = now;
+    }
+    return;
+  }
   const status = await fetchPresence('/status');
   if (!status || !status.presence_confirmed) return;
   presenceAutoFeed.last_fire_at = now;
@@ -701,13 +711,20 @@ async function checkPresenceClean() {
 app.get('/api/presence', async (req, res) => {
   const status = await fetchPresence('/status');
   if (!status) return res.json({ camera: false, monitoring: false, detected: false });
+  let auto_feed_remaining_s = 0;
+  if (presenceAutoFeed.enabled) {
+    const waited = Date.now() - presenceAutoFeed.last_fire_at;
+    auto_feed_remaining_s = Math.max(0, Math.ceil((presenceAutoFeed.cooldown_min * 60000 - waited) / 1000));
+  }
   res.json({
     camera: status.camera,
     monitoring: status.monitoring,
     detected: status.presence_confirmed,
     presence_seconds: status.presence_seconds,
     threshold: status.presence_threshold,
-    last_detection: status.last_detection
+    last_detection: status.last_detection,
+    auto_feed_enabled: presenceAutoFeed.enabled,
+    auto_feed_remaining_s
   });
 });
 

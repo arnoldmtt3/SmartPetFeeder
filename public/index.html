@@ -834,6 +834,12 @@ async function pollBeltStatus() {
 }
 
 // --- Presencia / Cámara ---
+function fmtCooldown(s) {
+  if (s <= 0) return '';
+  const m = Math.floor(s / 60), sec = s % 60;
+  return m > 0 ? m + ' min ' + sec + 's' : sec + 's';
+}
+
 async function pollPresence() {
   const res = await api('GET', '/api/presence');
   if (!res) {
@@ -880,6 +886,9 @@ async function pollPresence() {
       bCls = 'idle'; bMsg = 'Detección de presencia inactiva'; bEye = '&#128065;';
     } else if (res.detected) {
       bCls = 'detected'; bMsg = '¡Mascota detectada! Presencia: ' + res.presence_seconds + 's'; bEye = '&#128062;';
+      if (res.auto_feed_enabled && res.auto_feed_remaining_s > 0) {
+        bMsg += ' · auto-alimentación en espera (cooldown ' + fmtCooldown(res.auto_feed_remaining_s) + ')';
+      }
     } else {
       bCls = 'watching';
       const autoOn = document.getElementById('autoFeedPresence') && document.getElementById('autoFeedPresence').checked;
@@ -897,6 +906,9 @@ async function pollPresence() {
   if (res.monitoring) {
     info.textContent = 'Presencia: ' + res.presence_seconds + 's / ' + res.threshold + 's' +
       (res.last_detection ? ' | Última: ' + res.last_detection : '');
+    if (res.auto_feed_enabled && res.auto_feed_remaining_s > 0) {
+      info.textContent += ' | Auto-alimentación espera cooldown ' + fmtCooldown(res.auto_feed_remaining_s);
+    }
   } else {
     info.textContent = '';
   }
