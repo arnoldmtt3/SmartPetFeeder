@@ -528,6 +528,74 @@ app.get('/api/feed-log', (req, res) => {
   } catch { res.json([]); }
 });
 
+// ─── Consumo (estadísticas para el dueño) ──────────────────────────
+function getLocalDayKey(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
+app.get('/api/consumption', (req, res) => {
+  const today = new Date();
+  const todayKey = getLocalDayKey(today);
+
+  // Últimos 7 días (incluyendo hoy), con ceros
+  const days = {};
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+    days[getLocalDayKey(d)] = { date: getLocalDayKey(d), feeds: 0, grams: 0, humidified: 0 };
+  }
+
+  try {
+    const rows = db.prepare("SELECT portions, humidify, created_at FROM feed_log WHERE status = 'Completada' ORDER BY created_at DESC LIMIT 500").all();
+    rows.forEach((r) => {
+      const key = String(r.created_at || '').slice(0, 10);
+      if (!days[key]) return;
+      const grams = parseInt(String(r.portions).replace('g', ''), 10) || 0;
+      days[key].feeds += 1;
+      days[key].grams += grams;
+      if (r.humidify === 'Si') days[key].humidified += 1;
+    });
+  } catch (e) { console.error('[DB] Consumo:', e.message); }
+
+  const last7 = Object.values(days);
+  const todayStats = days[todayKey] || { feeds: 0, grams: 0, humidified: 0 };
+  const weekGrams = last7.reduce((s, d) => s + d.grams, 0);
+
+  // Próxima comida programada (si existe en horarios)
+  let next = null;
+  try {
+    const scheds = db.prepare('SELECT hour, minute, portions FROM schedules').all();
+    if (scheds.length) {
+      const nowMin = today.getHours() * 60 + today.getMinutes();
+      const inMin = scheds.map((s) => s.hour * 60 + s.minute).filter((m) => m > nowMin).sort((a, b) => a - b);
+      const nextMin = inMin.length ? inMin[0] : Math.min(...scheds.map((s) => s.hour * 60 + s.minute));
+      const s = scheds.find((s) => s.hour * 60 + s.minute === nextMin);
+      next = {
+        hh: String(s.hour).padStart(2, '0'),
+        mm: String(s.minute).padStart(2, '0'),
+        grams: s.portions,
+      };
+    }
+  } catch {}
+
+  res.json({
+    today: { date: todayKey, ...todayStats },
+    last7,
+    average_7d: Math.round(weekGrams / 7),
+    next_schedule: next,
+    goal_grams: loadSetting('daily_grams_goal', 0),
+  });
+});
+
+// Meta diaria de consumo (gramos)
+app.post('/api/consumption/goal', (req, res) => {
+  let grams = parseInt(req.body.grams, 10) || 0;
+  if (grams < 0) grams = 0;
+  if (grams > 1000) grams = 1000;
+  saveSetting('daily_grams_goal', grams);
+  res.json({ status: 'ok', grams });
+});
+
 // ─── Presence Detection (proxy a Python detector) ──────────────────
 const PRESENCE_URL = 'http://127.0.0.1:5001';
 const presenceState = {

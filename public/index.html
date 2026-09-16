@@ -193,6 +193,15 @@ button.sm { padding: 7px 13px; font-size: 0.82em; min-height: 34px; }
 .log-table tr:hover td { background: var(--surface-2); }
 .log-table .empty { text-align: center; color: var(--muted); padding: 26px; font-style: italic; }
 
+/* ============ Consumo (Modo Dueño) ============ */
+.consumo-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 4px 0; }
+.goal-bar { background: linear-gradient(90deg, var(--primary), var(--accent)) !important; }
+.weekly { display: flex; gap: 8px; align-items: flex-end; margin-top: 16px; }
+.weekly .w { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; min-width: 0; }
+.weekly .bar { width: 100%; max-width: 46px; background: linear-gradient(180deg, var(--primary), color-mix(in srgb, var(--primary) 45%, black)); border-radius: 6px 6px 2px 2px; min-height: 3px; transition: height 0.4s ease; }
+.weekly .w.today .bar { background: linear-gradient(180deg, #3F9142, #2b6b2e); }
+.weekly .lbl { font-size: 0.68em; color: var(--muted); text-align: center; line-height: 1.1; }
+
 .btn-group { display: flex; gap: 7px; flex-wrap: wrap; }
 .toast {
   position: fixed; bottom: 24px; right: 24px; left: 24px; max-width: 360px; margin-left: auto;
@@ -395,6 +404,38 @@ body.theme-tech .schedule-item .info strong,
       <button class="red sm" onclick="toggleHumidifier(false)">&#128308; Apagar</button>
       <span id="humidifierStatus" class="badge off">Apagado</span>
     </div>
+  </div>
+
+  <!-- Consumo diario -->
+  <div class="card wide" data-tab="usuario">
+    <h2><span class="icon">&#128202;</span> Consumo de Hoy</h2>
+    <div class="consumo-stats">
+      <div class="status-item">
+        <div class="num"><span id="cFeeds">0</span></div>
+        <div class="lbl">Raciones hoy</div>
+      </div>
+      <div class="status-item">
+        <div class="num"><span id="cGrams">0g</span></div>
+        <div class="lbl">Gramos hoy</div>
+      </div>
+      <div class="status-item">
+        <div class="num" id="cNext">--:--</div>
+        <div class="lbl">Pr&oacute;xima comida</div>
+      </div>
+      <div class="status-item">
+        <div class="num" id="cAvg">0g</div>
+        <div class="lbl">Promedio 7 d&iacute;as</div>
+      </div>
+    </div>
+    <div class="progress" style="margin-top:12px;"><div class="progress-bar goal-bar" id="cGoalBar" style="width:0%"></div></div>
+    <div class="row" style="justify-content:space-between;">
+      <span class="text-muted" id="cGoalText">Sin meta diaria configurada</span>
+      <span style="display:flex;gap:8px;align-items:center;">
+        <input type="number" id="goalGrams" value="" min="0" max="1000" placeholder="g/d&iacute;a" style="width:80px;">
+        <button class="sm blue" onclick="saveGoal()">Meta</button>
+      </span>
+    </div>
+    <div class="weekly" id="weeklyBars"></div>
   </div>
 
   <!-- Horarios -->
@@ -921,6 +962,53 @@ async function deleteSchedule(id) {
   if (res) { toast('Horario eliminado'); await loadSchedules(); }
 }
 
+// --- Consumo diario ---
+async function pollConsumption() {
+  const res = await api('GET', '/api/consumption');
+  if (!res || !res.today) return;
+  document.getElementById('cFeeds').textContent = res.today.feeds;
+  document.getElementById('cGrams').textContent = res.today.grams + 'g';
+  document.getElementById('cAvg').textContent = res.average_7d + 'g';
+  const ns = res.next_schedule;
+  document.getElementById('cNext').textContent = ns ? ns.hh + ':' + ns.mm + ' (' + ns.grams + 'g)' : '--:--';
+
+  const goal = res.goal_grams || 0;
+  const goalBar = document.getElementById('cGoalBar');
+  const goalText = document.getElementById('cGoalText');
+  const goalInput = document.getElementById('goalGrams');
+  if (goalInput && document.activeElement !== goalInput) {
+    goalInput.value = goal > 0 ? goal : '';
+  }
+  if (goal > 0) {
+    const pct = Math.min(100, Math.round((res.today.grams / goal) * 100));
+    goalBar.style.width = pct + '%';
+    goalText.textContent = res.today.grams + 'g de ' + goal + 'g (' + pct + '%)' + (res.today.grams >= goal ? ' — meta cumplida' : '');
+  } else {
+    goalBar.style.width = '0%';
+    goalText.textContent = 'Sin meta diaria configurada';
+  }
+
+  const days = res.last7 || [];
+  const max = Math.max.apply(null, days.map(d => d.grams).concat([1]));
+  document.getElementById('weeklyBars').innerHTML = days.map(d => {
+    const h = Math.max(4, Math.round((d.grams / max) * 58));
+    const isToday = d.date === res.today.date;
+    const dt = new Date(d.date + 'T12:00:00');
+    const lbl = isToday ? 'Hoy' : dt.toLocaleDateString('es-PE', { weekday: 'short' });
+    return '<div class="w' + (isToday ? ' today' : '') + '"><div class="bar" style="height:' + h + 'px"></div>' +
+      '<div class="lbl">' + lbl + '</div><div class="lbl">' + d.grams + 'g</div></div>';
+  }).join('');
+}
+
+async function saveGoal() {
+  const grams = parseInt(document.getElementById('goalGrams').value) || 0;
+  const res = await api('POST', '/api/consumption/goal', { grams });
+  if (res && res.status === 'ok') {
+    toast(grams > 0 ? 'Meta diaria configurada: ' + grams + 'g' : 'Meta diaria desactivada');
+    pollConsumption();
+  } else toast('Error al guardar la meta', true);
+}
+
 // --- Detectar fin de secuencia ---
 let _wasRunning = false;
 let _loggedSequence = false;
@@ -1032,9 +1120,11 @@ setInterval(pollPresence, 3000);
 setInterval(loadSchedules, 10000);
 setInterval(loadFeedLog, 15000);
 setInterval(pollServerTime, 15000);
+setInterval(pollConsumption, 15000);
 pollServerTime();
 loadSchedules();
 loadBeltParams();
+pollConsumption();
 
 // Listener para checkbox de "solo alimentar con presencia"
 document.getElementById('feedOnlyPresence').addEventListener('change', updateFeedOnlyPresence);
