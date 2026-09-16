@@ -163,6 +163,24 @@ button.sm { padding: 7px 13px; font-size: 0.82em; min-height: 34px; }
 .video-container { position: relative; width: 100%; max-width: 640px; margin: 0 auto; border-radius: 14px; overflow: hidden; border: 2px solid var(--border); background: #10151a; }
 .video-container img { width: 100%; display: block; min-height: 200px; background: #10151a; }
 
+/* ============ Presence banner (bajo el video) ============ */
+.presence-banner {
+  max-width: 640px; margin: 10px auto 0; display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 12px 16px; border-radius: 12px; font-size: 0.98em; font-weight: 600;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--muted);
+  transition: all 0.3s ease; text-align: center;
+}
+.presence-banner .presence-eye { font-size: 1.25em; }
+.presence-banner.watching { color: var(--warn-fg); border-color: var(--warn-bg); }
+.presence-banner.detected {
+  background: var(--pos-bg); border-color: var(--pos-fg); color: var(--pos-fg);
+  animation: pulseGlow 1.4s ease-in-out infinite;
+}
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(82,201,138,0.45); }
+  50% { box-shadow: 0 0 18px 3px rgba(82,201,138,0.4); }
+}
+
 /* ============ Schedules ============ */
 .schedule-item { display: flex; align-items: center; justify-content: space-between; background: var(--surface-2); padding: 10px 16px; border-radius: 12px; margin: 7px 0; border: 1px solid var(--border); }
 .schedule-item .info { display: flex; gap: 14px; align-items: center; font-size: 0.9em; }
@@ -461,6 +479,10 @@ body.theme-tech .schedule-item .info strong,
     <div class="video-container">
       <img src="/video_feed" alt="Video feed" id="videoFeed" onerror="this.dataset.err=1">
     </div>
+    <div class="presence-banner idle" id="presenceBanner">
+      <span class="presence-eye" id="presenceEye">&#128065;</span>
+      <span id="presenceMsg">Sin mascota detectada</span>
+    </div>
     <div class="row mt-10" style="justify-content:center;">
       <button class="sm" onclick="refreshVideo()">Reconectar</button>
       <span class="text-muted">Stream en vivo</span>
@@ -747,6 +769,12 @@ async function pollPresence() {
     document.getElementById('cameraBadge').className = 'badge closed';
     document.getElementById('presenceBadge').textContent = 'Sin datos';
     document.getElementById('presenceBadge').className = 'badge off';
+    const banner = document.getElementById('presenceBanner');
+    if (banner) {
+      banner.className = 'presence-banner idle';
+      document.getElementById('presenceMsg').textContent = 'Detector de presencia offline';
+      document.getElementById('presenceEye').innerHTML = '&#9888;&#65039;';
+    }
     return;
   }
 
@@ -766,6 +794,26 @@ async function pollPresence() {
   } else {
     presBadge.textContent = 'Inactivo';
     presBadge.className = 'badge off';
+  }
+
+  // Banner bajo el video en Modo Dueño
+  const banner = document.getElementById('presenceBanner');
+  const bannerMsg = document.getElementById('presenceMsg');
+  const bannerEye = document.getElementById('presenceEye');
+  if (banner) {
+    let bCls = 'idle', bMsg = 'Detección de presencia inactiva', bEye = '&#128065;';
+    if (!res.camera) {
+      bCls = 'idle'; bMsg = 'Cámara no disponible'; bEye = '&#9888;&#65039;';
+    } else if (!res.monitoring) {
+      bCls = 'idle'; bMsg = 'Detección de presencia inactiva'; bEye = '&#128065;';
+    } else if (res.detected) {
+      bCls = 'detected'; bMsg = '&#128062; ¡Mascota detectada! Presencia: ' + res.presence_seconds + 's'; bEye = '&#128062;';
+    } else {
+      bCls = 'watching'; bMsg = 'Monitoreando presencia...'; bEye = '&#128065;';
+    }
+    banner.className = 'presence-banner ' + bCls;
+    bannerMsg.innerHTML = bMsg;
+    bannerEye.innerHTML = bEye;
   }
 
   const info = document.getElementById('presenceInfo');
