@@ -1058,8 +1058,8 @@ async function pollStatus() {
     if (wasRunning && _pendingPortions > 0 && !_loggedSequence) {
       _loggedSequence = true;
       loadFeedLog();
-      if (seq.success) toast('✔ Alimentación completada: ' + _pendingPortions + 'g');
-      else toast('✖ La secuencia falló', true);
+      if (seq.success) toast('Alimentación terminada');
+      else toast('La secuencia falló', true);
       _pendingPortions = 0;
     }
   }
