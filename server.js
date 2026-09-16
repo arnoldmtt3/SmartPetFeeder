@@ -52,6 +52,7 @@ const state = {
   sequence_step: 0,
   sequence_step_name: '',
   sequence_progress_pct: 0,
+  cleaning: false,
 };
 
 // ─── SQLite Database ────────────────────────────────────────────────
@@ -229,6 +230,16 @@ function stopDispenser() {
 }
 
 // ─── Feeding sequence ─────────────────────────────────────────────
+// ─── Limpieza automática al retirarse la mascota ────────────────────
+const presClean = {
+  enabled: loadSetting('pres_clean_enabled', true),
+  delay_min: loadSetting('pres_clean_delay_min', 1),
+  armed: false,
+  departedAt: 0,
+  last_clean_at: 0,
+};
+const CLEAN_COOLDOWN_MS = 30 * 60000;
+
 async function runFeedingSequence(portions = 18, humidify = false, source = 'manual') {
   if (state.sequence_running) {
     console.log('[SECUENCIA] Ignorada: ya hay una en curso');
@@ -278,6 +289,7 @@ async function runFeedingSequence(portions = 18, humidify = false, source = 'man
     updateStep(7, 'Comida servida', 100);
     addFeedLogEntry(portions, humidify, true, source);
     console.log(`[SECUENCIA] Completada: ${portions}g (origen=${source})`);
+    armCleaning();
   } catch (e) {
     console.error('[SECUENCIA] Error:', e.message);
     state.sequence_success = false;
@@ -491,8 +503,8 @@ app.post('/api/last-feed', (req, res) => {
 app.post('/faja/manual', (req, res) => res.json({ status: 'ok' }));
 app.post('/faja/stop', (req, res) => res.json({ status: 'ok' }));
 app.post('/faja/setup', (req, res) => res.json({ status: 'ok', message: 'Pendiente' }));
-app.post('/faja/cycle', (req, res) => res.json({ status: 'ok', message: 'Pendiente' }));
-app.get('/faja/busy', (req, res) => res.json({ busy: false }));
+app.post('/faja/cycle', async (req, res) => { await runCleaning(); res.json({ status: 'ok', message: 'Ciclo de limpieza de faja ejecutado' }); });
+app.get('/faja/busy', (req, res) => res.json({ busy: state.cleaning }));
 app.get('/faja/params', (req, res) => res.json({ pulsos_seteo_m2: 1800, pulsos_avance: 600, pulsos_retorno: 1700 }));
 app.post('/faja/params', (req, res) => res.json({ status: 'ok', updated: req.body }));
 app.get('/faja/status', (req, res) => res.json({ encoder_m1: 0, encoder_m2: 0 }));
@@ -643,6 +655,49 @@ async function checkPresenceFeed() {
   runFeedingSequence(portions, humidify, 'presencia');
 }
 
+// Tras una comida exitosa, se espera a que la mascota se retire
+function armCleaning() {
+  if (!presClean.enabled) return;
+  presClean.armed = true;
+  presClean.departedAt = 0;
+  console.log('[LIMPIEZA] Armada: se limpiará cuando la mascota se retire');
+}
+
+// Ciclo de limpieza de faja transportadora (stub hasta conectar L298N)
+async function runCleaning() {
+  if (state.cleaning) return;
+  state.cleaning = true;
+  broadcast();
+  console.log('[LIMPIEZA] Iniciando ciclo de faja...');
+  await new Promise((r) => setTimeout(r, 8000));
+  state.cleaning = false;
+  broadcast();
+  console.log('[LIMPIEZA] Ciclo de faja completado');
+}
+
+// Verifica cada 5s: mascota retirada (+ espera) -> ejecuta limpieza
+async function checkPresenceClean() {
+  if (!presClean.enabled || !presClean.armed) return;
+  if (state.sequence_running || state.cleaning) return;
+  const now = Date.now();
+  const status = await fetchPresence('/status');
+  if (!status || !status.monitoring) return;
+  if (status.presence_confirmed) {
+    presClean.departedAt = 0;
+    return;
+  }
+  if (!presClean.departedAt) presClean.departedAt = now;
+  if (now - presClean.departedAt < presClean.delay_min * 60000) return;
+  presClean.armed = false;
+  presClean.departedAt = 0;
+  if (now - presClean.last_clean_at < CLEAN_COOLDOWN_MS) {
+    console.log('[LIMPIEZA] Omitida: cooldown de 30 min activo');
+    return;
+  }
+  presClean.last_clean_at = now;
+  await runCleaning();
+}
+
 app.get('/api/presence', async (req, res) => {
   const status = await fetchPresence('/status');
   if (!status) return res.json({ camera: false, monitoring: false, detected: false });
@@ -708,6 +763,25 @@ app.post('/api/presence/auto-feed', (req, res) => {
   res.json({ status: 'ok', enabled, cooldown_min: cooldown });
 });
 
+// Limpieza automática de faja al retirarse la mascota
+app.get('/api/presence/clean', (req, res) => {
+  res.json({ enabled: presClean.enabled, delay_min: presClean.delay_min });
+});
+
+app.post('/api/presence/clean', (req, res) => {
+  const enabled = !!req.body.enabled;
+  let delay = parseInt(req.body.delay_min, 10);
+  if (isNaN(delay) || delay < 0) delay = 0;
+  if (delay > 120) delay = 120;
+  presClean.enabled = enabled;
+  presClean.delay_min = delay;
+  saveSetting('pres_clean_enabled', enabled);
+  saveSetting('pres_clean_delay_min', delay);
+  if (!enabled) { presClean.armed = false; presClean.departedAt = 0; }
+  console.log(`[LIMPIEZA] Limpieza al retirarse: ${enabled ? 'ACTIVADA (espera ' + delay + ' min)' : 'desactivada'}`);
+  res.json({ status: 'ok', enabled, delay_min: delay });
+});
+
 // WebSocket
 wss.on('connection', (ws) => {
   console.log('[WS] Cliente conectado');
@@ -733,6 +807,8 @@ setInterval(checkSchedules, 15000);
 checkSchedules();
 setInterval(checkPresenceFeed, 5000);
 checkPresenceFeed();
+setInterval(checkPresenceClean, 5000);
+checkPresenceClean();
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor: http://localhost:${PORT}`);
