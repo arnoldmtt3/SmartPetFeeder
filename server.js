@@ -82,6 +82,10 @@ db.exec(`
     source TEXT DEFAULT 'manual',
     created_at TEXT DEFAULT (datetime('now','localtime'))
   );
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+  );
 `);
 
 // Migración para bases de datos creadas antes de la columna source
@@ -93,6 +97,21 @@ try {
 }
 
 const feedLog = [];
+
+// ─── Settings (clave/valor en SQLite) ─────────────────────────────
+function loadSetting(key, fallback) {
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    return row ? JSON.parse(row.value) : fallback;
+  } catch { return fallback; }
+}
+function saveSetting(key, value) {
+  try {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, JSON.stringify(value));
+  } catch (e) {
+    console.error('[DB] Error guardando setting:', e.message);
+  }
+}
 
 // ─── lgpio handles ────────────────────────────────────────────────
 let gpioHandle = null;
@@ -511,7 +530,16 @@ app.get('/api/feed-log', (req, res) => {
 
 // ─── Presence Detection (proxy a Python detector) ──────────────────
 const PRESENCE_URL = 'http://127.0.0.1:5001';
-const presenceState = { enabled: false, feed_only_with_presence: false };
+const presenceState = {
+  enabled: false,
+  feed_only_with_presence: loadSetting('feed_only_with_presence', false),
+};
+// Alimentación automática al detectar presencia (activa por defecto)
+const presenceAutoFeed = {
+  enabled: loadSetting('presence_auto_feed_enabled', true),
+  cooldown_min: loadSetting('presence_auto_feed_cooldown_min', 10),
+  last_fire_at: 0,
+};
 
 function fetchPresence(path) {
   return new Promise((resolve) => {
@@ -521,6 +549,24 @@ function fetchPresence(path) {
       res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
     }).on('error', () => resolve(null));
   });
+}
+
+// Verifica cada 5s si hay mascota confirmada -> dispara secuencia
+async function checkPresenceFeed() {
+  if (!presenceAutoFeed.enabled) return;
+  if (state.sequence_running) return;
+  const now = Date.now();
+  if (now - presenceAutoFeed.last_fire_at < presenceAutoFeed.cooldown_min * 60000) return;
+  const status = await fetchPresence('/status');
+  if (!status || !status.presence_confirmed) return;
+  presenceAutoFeed.last_fire_at = now;
+  let portions = 18, humidify = false;
+  try {
+    const row = db.prepare('SELECT portions, humidify FROM last_feed WHERE id = 1').get();
+    if (row) { portions = row.portions; humidify = !!row.humidify; }
+  } catch {}
+  console.log(`[PRESENCIA] Mascota detectada -> alimentación automática ${portions}g`);
+  runFeedingSequence(portions, humidify, 'presencia');
 }
 
 app.get('/api/presence', async (req, res) => {
@@ -560,6 +606,7 @@ app.post('/api/presence/threshold', (req, res) => {
 
 app.post('/api/presence/feed-only', (req, res) => {
   presenceState.feed_only_with_presence = !!req.body.enabled;
+  saveSetting('feed_only_with_presence', presenceState.feed_only_with_presence);
   res.json({ feed_only_with_presence: presenceState.feed_only_with_presence });
 });
 
@@ -567,6 +614,24 @@ app.post('/api/presence/feed-only', (req, res) => {
 
 app.get('/api/presence/feed-only', (req, res) => {
   res.json({ feed_only_with_presence: presenceState.feed_only_with_presence });
+});
+
+// Alimentación automática al detectar mascota
+app.get('/api/presence/auto-feed', (req, res) => {
+  res.json({ enabled: presenceAutoFeed.enabled, cooldown_min: presenceAutoFeed.cooldown_min });
+});
+
+app.post('/api/presence/auto-feed', (req, res) => {
+  const enabled = !!req.body.enabled;
+  let cooldown = parseInt(req.body.cooldown_min, 10) || presenceAutoFeed.cooldown_min;
+  if (cooldown < 1 || cooldown > 120) cooldown = 10;
+  presenceAutoFeed.enabled = enabled;
+  presenceAutoFeed.cooldown_min = cooldown;
+  saveSetting('presence_auto_feed_enabled', enabled);
+  saveSetting('presence_auto_feed_cooldown_min', cooldown);
+  if (enabled) presenceAutoFeed.last_fire_at = 0;
+  console.log(`[PRESENCIA] Auto-alimentación: ${enabled ? 'ACTIVADA (espera ' + cooldown + ' min)' : 'desactivada'}`);
+  res.json({ status: 'ok', enabled, cooldown_min: cooldown });
 });
 
 // WebSocket
@@ -592,6 +657,8 @@ if (i2cOk) {
 
 setInterval(checkSchedules, 15000);
 checkSchedules();
+setInterval(checkPresenceFeed, 5000);
+checkPresenceFeed();
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor: http://localhost:${PORT}`);

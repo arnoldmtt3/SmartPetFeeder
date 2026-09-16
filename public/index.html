@@ -367,6 +367,19 @@ body.theme-tech .schedule-item .info strong,
         <span class="track"></span>
       </label>
     </div>
+    <div class="row">
+      <label style="min-width:auto;">Alimentar al detectar:</label>
+      <label class="switch">
+        <input type="checkbox" id="autoFeedPresence">
+        <span class="track"></span>
+      </label>
+      <span class="text-muted" id="autoFeedPresenceState"></span>
+    </div>
+    <div class="row">
+      <label>Espera:</label>
+      <input type="number" id="autoFeedCooldown" value="10" min="1" max="120" style="width:70px;">
+      <span class="text-muted">min entre raciones autom&aacute;ticas</span>
+    </div>
     <div class="btn-group mt-10">
       <button class="green sm" onclick="startPresence()">&#9654; Iniciar</button>
       <button class="red sm" onclick="stopPresence()">&#9632; Detener</button>
@@ -809,7 +822,10 @@ async function pollPresence() {
     } else if (res.detected) {
       bCls = 'detected'; bMsg = '&#128062; ¡Mascota detectada! Presencia: ' + res.presence_seconds + 's'; bEye = '&#128062;';
     } else {
-      bCls = 'watching'; bMsg = 'Monitoreando presencia...'; bEye = '&#128065;';
+      bCls = 'watching';
+      const autoOn = document.getElementById('autoFeedPresence') && document.getElementById('autoFeedPresence').checked;
+      bMsg = autoOn ? '&#128065; Monitoreando: se alimentar&aacute; al detectar a la mascota' : 'Monitoreando presencia...';
+      bEye = '&#128065;';
     }
     banner.className = 'presence-banner ' + bCls;
     bannerMsg.innerHTML = bMsg;
@@ -847,6 +863,26 @@ async function stopPresence() {
 async function updateFeedOnlyPresence() {
   const enabled = document.getElementById('feedOnlyPresence').checked;
   await api('POST', '/api/presence/feed-only', { enabled });
+}
+
+async function loadPresenceAutoFeed() {
+  const res = await api('GET', '/api/presence/auto-feed');
+  if (!res) return;
+  document.getElementById('autoFeedPresence').checked = !!res.enabled;
+  document.getElementById('autoFeedCooldown').value = res.cooldown_min || 10;
+  document.getElementById('autoFeedPresenceState').textContent = res.enabled ?
+    'activa (dispensa al confirmar mascota)' : 'inactiva';
+}
+
+async function updatePresenceAutoFeed() {
+  const enabled = document.getElementById('autoFeedPresence').checked;
+  const cooldown_min = parseInt(document.getElementById('autoFeedCooldown').value) || 10;
+  const res = await api('POST', '/api/presence/auto-feed', { enabled, cooldown_min });
+  if (res && res.status === 'ok') {
+    document.getElementById('autoFeedPresenceState').textContent = enabled ?
+      'activa (dispensa al confirmar mascota)' : 'inactiva';
+    toast('Alimentación por presencia ' + (enabled ? 'ACTIVADA (espera ' + res.cooldown_min + ' min)' : 'desactivada'));
+  }
 }
 
 
@@ -1002,6 +1038,9 @@ loadBeltParams();
 
 // Listener para checkbox de "solo alimentar con presencia"
 document.getElementById('feedOnlyPresence').addEventListener('change', updateFeedOnlyPresence);
+document.getElementById('autoFeedPresence').addEventListener('change', updatePresenceAutoFeed);
+document.getElementById('autoFeedCooldown').addEventListener('change', updatePresenceAutoFeed);
+loadPresenceAutoFeed();
 </script>
 </body>
 </html>
