@@ -419,6 +419,18 @@ body.theme-tech .schedule-item .info strong,
     </div>
   </div>
 
+  <!-- Red WiFi -->
+  <div class="card span4" data-tab="pruebas">
+    <h2><span class="icon">&#128225;</span> Red WiFi</h2>
+    <div class="row">
+      <span id="wifiCurrent" class="badge off">Desconectado</span>
+      <button class="gray sm" onclick="loadWifi()">&#128260; Actualizar</button>
+    </div>
+    <div id="wifiList" class="mt-10">
+      <div class="text-muted">Cargando redes...</div>
+    </div>
+  </div>
+
   <!-- Consumo diario -->
   <div class="card wide" data-tab="usuario">
     <h2><span class="icon">&#128202;</span> Consumo de Hoy</h2>
@@ -978,6 +990,54 @@ async function updatePresenceClean() {
   }
 }
 
+// --- WiFi ---
+function wifiBars(signal) {
+  return signal >= 75 ? '&#9638;&#9639;&#9640;&#9641;' :
+         signal >= 50 ? '&#9638;&#9639;&#9639;&#9640;' :
+         signal >= 25 ? '&#9638;&#9639;&#9639;&#9639;' : '&#9638;&#9640;&#9640;&#9640;';
+}
+
+async function loadWifi() {
+  const res = await api('GET', '/api/wifi');
+  const box = document.getElementById('wifiList');
+  const cur = document.getElementById('wifiCurrent');
+  if (!res) {
+    cur.textContent = 'Sin respuesta'; cur.className = 'badge off';
+    box.innerHTML = '<div class="text-muted">Error de conexión</div>';
+    return;
+  }
+  cur.textContent = res.active_ssid ? 'Conectado a ' + res.active_ssid : 'Sin conexión';
+  cur.className = 'badge ' + (res.active_ssid ? 'green' : 'off');
+  if (res.wifi_on === false || !res.networks.length) {
+    box.innerHTML = '<div class="text-muted">No hay redes visibles</div>';
+    return;
+  }
+  box.innerHTML = res.networks.map((n) => {
+    const saved = res.saved.includes(n.ssid);
+    const needPwd = !saved && n.security !== 'abierta';
+    return '<div class="row" style="margin:6px 0;">' +
+      '<span style="flex:1;">' + n.ssid +
+        '<span class="text-muted"> ' + wifiBars(n.signal) + ' ' + n.signal + '% · ' + n.security + (saved ? ' ✓' : '') + '</span></span>' +
+      (n.inuse
+        ? '<span class="badge green sm">Activa</span>'
+        : '<button class="sm blue" onclick="connectWifi(\'' + encodeURIComponent(n.ssid) + '\',' + (needPwd ? 'true' : 'false') + ')">Conectar</button>') +
+      '</div>';
+  }).join('');
+}
+
+async function connectWifi(ssidEnc, needPwd) {
+  const ssid = decodeURIComponent(ssidEnc);
+  let password = null;
+  if (needPwd) {
+    password = window.prompt('Contraseña de "' + ssid + '":');
+    if (password === null) return;
+  }
+  toast('Conectando a ' + ssid + '...');
+  const res = await api('POST', '/api/wifi/connect', { ssid, password: password || undefined });
+  if (res && res.error) { toast(res.error, true); return; }
+  setTimeout(loadWifi, 9000);
+}
+
 
 
 // --- Horarios ---
@@ -1189,6 +1249,8 @@ document.getElementById('feedPortions').addEventListener('change', updateQuickSe
 document.getElementById('feedHumidify').addEventListener('change', updateQuickSelected);
 loadPresenceAutoFeed();
 loadPresenceClean();
+loadWifi();
+setInterval(loadWifi, 20000);
 </script>
 </body>
 </html>

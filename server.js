@@ -17,6 +17,7 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const path = require('path');
 const fs = require('fs');
+const { execFile } = require('child_process');
 const lgpio = require('lgpio');
 const Database = require('better-sqlite3');
 
@@ -797,6 +798,78 @@ app.post('/api/presence/clean', (req, res) => {
   if (!enabled) { presClean.armed = false; presClean.departedAt = 0; }
   console.log(`[LIMPIEZA] Limpieza al retirarse: ${enabled ? 'ACTIVADA (espera ' + delay + ' min)' : 'desactivada'}`);
   res.json({ status: 'ok', enabled, delay_min: delay });
+});
+
+// ─── Gestor WiFi (nmcli) ────────────────────────────────────────────
+function runCmd(cmd, args) {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout: 30000 }, (err, stdout, stderr) => {
+      resolve({ ok: !err, stdout: stdout || '', stderr: stderr || '' });
+    });
+  });
+}
+
+function splitNmFields(line) {
+  return line.split(/(?<!\\):/).map((f) => f.replace(/\\:/g, ':'));
+}
+
+function parseNmcliWifi(out) {
+  const map = {};
+  for (const raw of out.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    const fields = splitNmFields(line);
+    const inuse = fields[0] === '*';
+    const ssid = fields[1];
+    const signal = parseInt(fields[2], 10) || 0;
+    const security = fields[3] ? fields[3].trim() : '';
+    if (!ssid) continue;
+    if (!map[ssid] || map[ssid].signal < signal) {
+      map[ssid] = { ssid, signal, security: security || 'abierta', inuse };
+    }
+  }
+  return Object.values(map).sort((a, b) => b.signal - a.signal);
+}
+
+app.get('/api/wifi', async (req, res) => {
+  const list = await runCmd('nmcli', ['-t', '-f', 'IN-USE,SSID,SIGNAL,SECURITY', 'device', 'wifi', 'list']);
+  const networks = list.ok ? parseNmcliWifi(list.stdout) : [];
+  const savedR = await runCmd('nmcli', ['-t', '-f', 'NAME,TYPE', 'con', 'show']);
+  const saved = savedR.ok
+    ? savedR.stdout.split('\n').map(splitNmFields).filter((a) => a[1] === '802-11-wireless').map((a) => a[0])
+    : [];
+  const activeR = await runCmd('nmcli', ['-t', '-f', 'NAME,TYPE', 'con', 'show', '--active']);
+  let active_ssid = null;
+  if (activeR.ok) {
+    const row = activeR.stdout.split('\n').map(splitNmFields).find((a) => a[1] === '802-11-wireless');
+    if (row) active_ssid = row[0];
+  }
+  res.json({ wifi_on: list.ok, networks, saved, active_ssid });
+});
+
+app.post('/api/wifi/connect', (req, res) => {
+  const { ssid, password } = req.body || {};
+  if (!ssid) return res.status(400).json({ error: 'Falta el nombre de la red' });
+  const s = String(ssid);
+  const pwd = password ? String(password) : null;
+  const doConnect = (r) => {
+    console.log(`[WIFI] Conectando a ${s}: ${r.ok ? 'OK' : r.stderr.trim() || 'fallo'}`);
+    if (!r.ok) console.log('[WIFI] ' + (r.stdout || '').trim());
+  };
+  runCmd('nmcli', ['-t', '-f', 'NAME,TYPE', 'con', 'show']).then((savedR) => {
+    const savedNames = savedR.ok
+      ? savedR.stdout.split('\n').map(splitNmFields).filter((a) => a[1] === '802-11-wireless').map((a) => a[0])
+      : [];
+    if (savedNames.includes(s)) {
+      runCmd('nmcli', ['connection', 'up', s]).then(doConnect);
+    } else if (pwd) {
+      runCmd('nmcli', ['device', 'wifi', 'connect', s, 'password', pwd]).then(doConnect);
+    } else {
+      res.status(400).json({ error: 'Red no guardada: se necesita la contraseña' });
+      return;
+    }
+    res.json({ status: 'connecting', ssid: s });
+  });
 });
 
 // WebSocket
