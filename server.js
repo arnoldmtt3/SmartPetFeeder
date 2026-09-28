@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * SmartPetFeeder - Node.js Server v2.1
+ * SmartPetFeeder - Node.js Server v2.3
  * Controla actuadores via PCA9685 (I2C) y GPIO - todo con lgpio.
  * Sirve la interfaz web y maneja WebSocket para tiempo real.
  *
@@ -20,6 +20,7 @@ const fs = require('fs');
 const { execFile } = require('child_process');
 const lgpio = require('lgpio');
 const Database = require('better-sqlite3');
+const { createAuth } = require('./auth');
 
 // ─── Config ────────────────────────────────────────────────────────
 const PORT = 3000;
@@ -57,9 +58,12 @@ const state = {
 };
 
 // ─── SQLite Database ────────────────────────────────────────────────
-const DB_FILE = path.join(__dirname, 'data', 'smartpetfeeder.db');
+const DATA_DIR = path.join(__dirname, 'data');
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const DB_FILE = path.join(DATA_DIR, 'smartpetfeeder.db');
 const db = new Database(DB_FILE);
 db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS schedules (
@@ -402,9 +406,31 @@ function broadcast() {
 // ─── Express ───────────────────────────────────────────────────────
 const app = express();
 const server = http.createServer(app);
-wss = new WebSocketServer({ server });
+const auth = createAuth(db);
+wss = new WebSocketServer({
+  server,
+  verifyClient: ({ req }, done) => {
+    const session = auth.getSession(req);
+    done(!!session, session ? 200 : 401, session ? undefined : 'Unauthorized');
+  },
+});
 
-app.use(express.json());
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use(express.json({ limit: '32kb' }));
+
+// Autenticación. En el primer inicio, /login permite crear la cuenta administradora.
+app.get('/login', (req, res) => {
+  if (auth.getSession(req)) return res.redirect('/');
+  return res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+app.get('/api/auth/status', auth.status);
+app.post('/api/auth/setup', auth.setup);
+app.post('/api/auth/login', auth.login);
+app.post('/api/auth/logout', auth.logout);
+
+// Todo lo demás (panel, cámara, WebSocket y controles) requiere sesión.
+app.use(auth.requireAuth);
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: true,
   lastModified: true,
@@ -880,7 +906,7 @@ wss.on('connection', (ws) => {
 });
 
 // ─── Start ─────────────────────────────────────────────────────────
-console.log('=== SmartPetFeeder v2.1 (Node.js + PCA9685 + lgpio) ===');
+console.log('=== SmartPetFeeder v2.3 (Node.js + PCA9685 + lgpio) ===');
 
 const i2cOk = pca9685Init();
 const gpioOk = gpioInit();
@@ -899,6 +925,8 @@ setInterval(checkPresenceFeed, 5000);
 checkPresenceFeed();
 setInterval(checkPresenceClean, 5000);
 checkPresenceClean();
+setInterval(auth.cleanupSessions, 60 * 60 * 1000);
+auth.cleanupSessions();
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor: http://localhost:${PORT}`);

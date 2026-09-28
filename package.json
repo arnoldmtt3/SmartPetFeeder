@@ -1,6 +1,6 @@
 {
   "name": "smartpetfeeder",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Alimentador automatico para mascotas - Node.js + PCA9685",
   "main": "server.js",
   "scripts": {
