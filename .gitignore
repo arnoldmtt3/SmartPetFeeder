@@ -14,3 +14,25 @@ __pycache__/
 *.tar.gz
 .env
 smartpetfeeder.log
+
+# Firmware y binarios compilados
+fw_*.bin
+*.elf
+*.map
+
+# Backups y variantes temporales
+*.bak
+*.bak_*
+*.bak2
+*.bak3
+*.updated
+*.respaldo*
+*.antes*
+*.fluido
+*.ino.*
+.bak_camera_*/
+
+# Entornos virtuales y modelos (binarios grandes)
+.venv*/
+venv/
+models/

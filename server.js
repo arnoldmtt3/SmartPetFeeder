@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /**
- * SmartPetFeeder - Node.js Server v2.3
- * Controla actuadores via PCA9685 (I2C) y GPIO - todo con lgpio.
+ * SmartPetFeeder - Node.js Server v2.1
+ * Servos (compuertas y dosificador) y sensor FC-03 via ESP32 (serial USB).
+ * Rele y faja via GPIO de la Raspberry Pi (lgpio).
  * Sirve la interfaz web y maneja WebSocket para tiempo real.
  *
  * Hardware:
- *   PCA9685 (I2C 0x40, bus 1):
- *     Canal 0  -> Servo compuerta superior (posicional)
- *     Canal 1  -> Servo dosificador (rotacion continua)
- *     Canal 2  -> Servo compuerta inferior (posicional)
- *   GPIO 5 -> Rele humidificador
+ *   ESP32 (/dev/ttyUSB0, 115200):
+ *     cmd 2 -> Servo compuerta superior (posicional)
+ *     cmd 3 -> Servo compuerta inferior (posicional)
+ *     cmd 6 -> Dosificador N porciones (1 vuelta = 1 pulso FC-03 = 12 g)
+ *     cmd 7 -> Giro por tiempo del dosificador
+ *   GPIO 5 -> Rele humidificador ; faja (L298N) en GPIO 12,13,17,18,22,23
  */
 
 const express = require('express');
@@ -21,12 +23,22 @@ const { execFile } = require('child_process');
 const lgpio = require('lgpio');
 const Database = require('better-sqlite3');
 const { createAuth } = require('./auth');
+const { authorizeLocalAgent } = require('./agent/local-auth');
 
 // ─── Config ────────────────────────────────────────────────────────
 const PORT = 3000;
 const I2C_ADDR = 0x40;
 const I2C_BUS = 1;
 const RELAY_PIN = 5;
+
+// ─── Faja (L298N, 2 motores) ──────────────────────────────────────
+// Ambos motores jalan juntos. Adelante: M1 con IN1 / M2 con IN3.
+// Atras: M1 con IN2 / M2 con IN4. Sin coast: el motor libre no
+// arrastra la faja, asi que los dos jalan en cada fase.
+const M1_ENA = 12, M1_IN1 = 17, M1_IN2 = 18;
+const M2_ENB = 13, M2_IN3 = 22, M2_IN4 = 23;
+const FAJA_ADELANTE_MS = 3000;
+const FAJA_RETORNO_MS = 3000;
 
 // PCA9685 registers
 const MODE1 = 0x00;
@@ -39,10 +51,12 @@ const CH_DOSIFICADOR = 1;
 const CH_INFERIOR = 2;
 
 // Movement constants
-const GRAMOS_POR_REV = 9;
+const GRAMOS_POR_REV = 12;
 const TIEMPO_POR_REV = 1.548;
-const ABIERTO = 0;
-const CERRADO = 180;
+const ABIERTO_SUPERIOR = 0;
+const ABIERTO_INFERIOR = 0;
+const CERRADO_SUPERIOR = 180;
+const CERRADO_INFERIOR = 180;
 
 // ─── State ─────────────────────────────────────────────────────────
 const state = {
@@ -58,24 +72,21 @@ const state = {
 };
 
 // ─── SQLite Database ────────────────────────────────────────────────
-const DATA_DIR = path.join(__dirname, 'data');
-fs.mkdirSync(DATA_DIR, { recursive: true });
-const DB_FILE = path.join(DATA_DIR, 'smartpetfeeder.db');
+const DB_FILE = path.join(__dirname, 'data', 'smartpetfeeder.db');
 const db = new Database(DB_FILE);
 db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS schedules (
     id TEXT PRIMARY KEY,
     hour INTEGER NOT NULL,
     minute INTEGER NOT NULL,
-    portions INTEGER DEFAULT 18,
+    portions INTEGER DEFAULT 12,
     humidify INTEGER DEFAULT 0
   );
   CREATE TABLE IF NOT EXISTS last_feed (
     id INTEGER PRIMARY KEY CHECK (id = 1),
-    portions INTEGER DEFAULT 18,
+    portions INTEGER DEFAULT 12,
     humidify INTEGER DEFAULT 0
   );
   CREATE TABLE IF NOT EXISTS feed_log (
@@ -168,17 +179,20 @@ function setAngle(channel, angle) {
   setPulse(channel, pulseMs);
 }
 
+const DOSIFIER_NEUTRAL_MS = 1.575; // trim: neutro real del servo dosificador (parada)
 function setThrottle(channel, throttle) {
-  const pulseMs = 1.5 + throttle * 0.5;
+  const pulseMs = DOSIFIER_NEUTRAL_MS + throttle * 0.5;
   setPulse(channel, pulseMs);
 }
 
-// ─── GPIO relay ───────────────────────────────────────────────────
+// ─── GPIO: relé humidificador + faja ──────────────────────────────
+const FAJA_PINS = [M1_ENA, M1_IN1, M1_IN2, M2_ENB, M2_IN3, M2_IN4];
 function gpioInit() {
   try {
     if (!gpioHandle) gpioHandle = lgpio.gpiochipOpen(0);
     lgpio.gpioClaimOutput(gpioHandle, RELAY_PIN, 0);
-    console.log('[GPIO] Rele en GPIO' + RELAY_PIN);
+    for (const pin of FAJA_PINS) lgpio.gpioClaimOutput(gpioHandle, pin, 0);
+    console.log('[GPIO] Rele en GPIO' + RELAY_PIN + ' | Faja en pins ' + FAJA_PINS.join(','));
     return true;
   } catch (e) {
     console.error('[GPIO] Error:', e.message);
@@ -192,49 +206,150 @@ function setRelay(on) {
   state.humidifier_on = on;
 }
 
-// ─── Actuators ─────────────────────────────────────────────────────
+// ─── Faja: ambos motores jalan juntos en cada fase ────────────────
+const FAJA_PWM_FREQ = 1000;
+const FAJA_DUTY_A = 65;   // M1 adelante
+const FAJA_DUTY_B = 55;   // M2 adelante
+const FAJA_DUTY_A_TRAS = 55; // M1 retroceso
+const FAJA_DUTY_B_TRAS = 50; // M2 retroceso
+let fajaTestTimer = null;
+
+function fajaStop() {
+  if (gpioHandle === null) return;
+  for (const pin of FAJA_PINS) lgpio.gpioWrite(gpioHandle, pin, 0);
+  if (fajaTestTimer) { clearTimeout(fajaTestTimer); fajaTestTimer = null; }
+}
+
+// Mueve la faja con duty configurable por motor ("forward" | "backward").
+function fajaRun(direction, dutyA = FAJA_DUTY_A, dutyB = FAJA_DUTY_B) {
+  if (gpioHandle === null) return false;
+  fajaStop();
+  const A_HI = direction === 'forward' ? M1_IN1 : M1_IN2;
+  const B_HI = direction === 'forward' ? M2_IN3 : M2_IN4;
+  lgpio.gpioWrite(gpioHandle, A_HI, 1);
+  lgpio.gpioWrite(gpioHandle, B_HI, 1);
+  lgpio.txPwm(gpioHandle, M1_ENA, FAJA_PWM_FREQ, dutyA);
+  lgpio.txPwm(gpioHandle, M2_ENB, FAJA_PWM_FREQ, dutyB);
+  return true;
+}
+
+function fajaAdelante() {
+  return fajaRun('forward');
+}
+
+function fajaRetorno() {
+  return fajaRun('backward', FAJA_DUTY_A_TRAS, FAJA_DUTY_B_TRAS);
+}
+
+// Prueba única: dirección + tiempo + PWM por motor (duty 0-100).
+async function fajaTest({ direction = 'forward', duration_ms = 3000, duty_a, duty_b } = {}) {
+  fajaStop();
+  const dA = Number.isFinite(duty_a) ? Math.min(100, Math.max(0, duty_a)) : (direction === 'backward' ? FAJA_DUTY_A_TRAS : FAJA_DUTY_A);
+  const dB = Number.isFinite(duty_b) ? Math.min(100, Math.max(0, duty_b)) : (direction === 'backward' ? FAJA_DUTY_B_TRAS : FAJA_DUTY_B);
+  fajaRun(direction, dA, dB);
+  const ms = Math.max(100, Number(duration_ms) || 3000);
+  fajaTestTimer = setTimeout(fajaStop, ms);
+  return { direction, duration_ms: ms, duty_a: dA, duty_b: dB };
+}
+
+function fajaBusy() {
+  return fajaTestTimer !== null;
+}
+
+// ─── ESP32 (serial USB): servos compuertas + dosificador + sensor FC-03 ──
+// Los servos (compuertas y dosificador) están conectados al ESP32 (/dev/ttyUSB0),
+// no a la PCA9685. Cada comando se envía vía esp32_cmd.py y se espera a que el
+// firmware termine (marca "Ingrese otro comando:").
+const ESP32_SCRIPT = path.join(__dirname, 'esp32_cmd.py');
+
+function esp32Cmd(cmd, timeoutMs = 15000) {
+  const secs = String(Math.max(1, Math.ceil(timeoutMs / 1000)));
+  return new Promise((resolve, reject) => {
+    execFile('python3', [ESP32_SCRIPT, secs, cmd], { timeout: timeoutMs + 3000 }, (err, stdout) => {
+      if (err) return reject(err);
+      resolve((stdout || '').toString());
+    });
+  });
+}
+
+// ─── Actuators (ESP32) ─────────────────────────────────────────────
+// Comando 2 = compuerta superior, 3 = compuerta inferior (angulo 0-180).
 function openUpperDoor() {
-  setAngle(CH_SUPERIOR, ABIERTO);
+  esp32Cmd(`2 ${ABIERTO_SUPERIOR}`).catch(() => {});
   state.superior_open = true;
   broadcast();
 }
 
 function closeUpperDoor() {
-  setAngle(CH_SUPERIOR, CERRADO);
+  esp32Cmd(`2 ${CERRADO_SUPERIOR}`).catch(() => {});
   state.superior_open = false;
   broadcast();
 }
 
 function openLowerDoor() {
-  setAngle(CH_INFERIOR, ABIERTO);
+  esp32Cmd(`3 ${ABIERTO_INFERIOR}`).catch(() => {});
   state.inferior_open = true;
   broadcast();
 }
 
 function closeLowerDoor() {
-  setAngle(CH_INFERIOR, CERRADO);
+  esp32Cmd(`3 ${CERRADO_INFERIOR}`).catch(() => {});
   state.inferior_open = false;
   broadcast();
 }
 
+const GRAMOS_POR_RACION = 12; // 1 porción = 12 g
+
+// Dosificación vía ESP32: comando serial "6 <raciones>". El firmware gira el
+// dosificador hasta contar 1 pulso del FC-03 por ración (1 vuelta = 12 g).
 function dispenseGrams(grams) {
-  return new Promise((resolve) => {
-    const revolutions = grams / GRAMOS_POR_REV;
-    const seconds = Math.abs(revolutions * TIEMPO_POR_REV);
-    const reverse = revolutions < 0;
-    setThrottle(CH_DOSIFICADOR, reverse ? -1.0 : 1.0);
-    setTimeout(() => {
-      setThrottle(CH_DOSIFICADOR, 0);
+  return new Promise(async (resolve) => {
+    const raciones = Math.max(1, Math.round((grams || 0) / GRAMOS_POR_RACION));
+    console.log(`[DOSIFICADOR] ${raciones} porciones (~${raciones * GRAMOS_POR_RACION}g) vía ESP32 (FC-03)`);
+    try {
+      const out = await esp32Cmd(`6 ${raciones}`, 60000);
+      console.log(`[DOSIFICADOR] ${(out || '').trim().replace(/\n/g, ' | ')}`);
+    } catch (e) {
+      console.error('[DOSIFICADOR] Error ESP32:', e.message);
+    } finally {
       resolve();
-    }, seconds * 1000);
+    }
   });
 }
 
+// El firmware no tiene comando de parada dedicado; "7 1 1" gira 1 ms y deja el
+// servo en neutro (detener). Solo se usa al cerrar el servicio.
 function stopDispenser() {
-  setThrottle(CH_DOSIFICADOR, 0);
+  esp32Cmd('7 1 1').catch(() => {});
 }
 
 // ─── Feeding sequence ─────────────────────────────────────────────
+// ─── Cámara: consentimiento explícito y captura real ───────────────
+// Explicit consent each controller boot; do not restore a persisted "on" state.
+let cameraEnabled = false;
+const activeCameraStreams = new Set();
+const CAMERA_OFF_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#10151a"/><text x="320" y="175" font-family="Arial" font-size="26" fill="#5b6770" text-anchor="middle">Cámara desactivada</text><text x="320" y="205" font-family="Arial" font-size="16" fill="#3d464d" text-anchor="middle">Video en vivo oculto</text></svg>`;
+async function getCameraState() {
+  const detector = await fetchPresence('/status');
+  if (!detector?.camera) cameraEnabled = false;
+  return { enabled: cameraEnabled && detector?.camera === true, available: !!detector, monitoring: !!detector?.monitoring };
+}
+async function setCameraEnabled(on) {
+  if (!on) {
+    cameraEnabled = false;
+    presClean.armed = false;
+    presClean.departedAt = 0;
+    for (const stream of activeCameraStreams) { stream.up.destroy(); stream.res.end(); }
+    activeCameraStreams.clear();
+  }
+  const result = await fetchPresence(on ? '/camera/start' : '/camera/stop');
+  if (!result || result.error || result.enabled !== !!on) {
+    cameraEnabled = false;
+    return { status: 'error', enabled: false, error: result?.error || 'No se pudo cambiar el estado de la cámara' };
+  }
+  cameraEnabled = !!on;
+  return { status: 'ok', enabled: cameraEnabled };
+}
 // ─── Limpieza automática al retirarse la mascota ────────────────────
 const presClean = {
   enabled: loadSetting('pres_clean_enabled', true),
@@ -245,7 +360,7 @@ const presClean = {
 };
 const CLEAN_COOLDOWN_MS = 30 * 60000;
 
-async function runFeedingSequence(portions = 18, humidify = false, source = 'manual') {
+async function runFeedingSequence(portions = 12, humidify = false, source = 'manual') {
   if (state.sequence_running) {
     console.log('[SECUENCIA] Ignorada: ya hay una en curso');
     return;
@@ -289,6 +404,13 @@ async function runFeedingSequence(portions = 18, humidify = false, source = 'man
 
     updateStep(6, 'Cerrando compuerta inferior...', 66);
     closeLowerDoor();
+    await delay(2000);
+
+    // Retroceso breve de la faja para liberar/retirar el alimento servido
+    updateStep(7, 'Retrocediendo faja...', 85);
+    fajaRetorno();
+    await delay(1500);
+    fajaStop();
 
     state.sequence_success = true;
     updateStep(7, 'Comida servida', 100);
@@ -430,7 +552,11 @@ app.post('/api/auth/login', auth.login);
 app.post('/api/auth/logout', auth.logout);
 
 // Todo lo demás (panel, cámara, WebSocket y controles) requiere sesión.
-app.use(auth.requireAuth);
+// Puente del agente en loopback (Bearer AGENT_LOCAL_TOKEN) para la nube central.
+app.use((req, res, next) => {
+  if (authorizeLocalAgent(req, process.env.AGENT_LOCAL_TOKEN)) return next();
+  return auth.requireAuth(req, res, next);
+});
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: true,
   lastModified: true,
@@ -439,13 +565,14 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 
-// Door
+// Door (PCA9685)
 app.post('/door/:type', (req, res) => {
   const { type } = req.params;
   const { action } = req.body;
   if (!['upper', 'lower'].includes(type)) return res.json({ status: 'error', message: 'Tipo invalido' });
-  if (type === 'upper') action === 'open' ? openUpperDoor() : closeUpperDoor();
-  else action === 'open' ? openLowerDoor() : closeLowerDoor();
+  const open = action === 'open';
+  if (type === 'upper') { open ? openUpperDoor() : closeUpperDoor(); }
+  else { open ? openLowerDoor() : closeLowerDoor(); }
   res.json({ status: 'ok' });
 });
 app.get('/door/:type', (req, res) => {
@@ -455,20 +582,47 @@ app.get('/door/:type', (req, res) => {
 });
 
 // Dosifier
-app.post('/dosifier/test', (req, res) => {
-  dispenseGrams(req.body.grams || 9);
-  res.json({ status: 'started' });
+app.post('/dosifier/test', async (req, res) => {
+  const grams = Number(req.body.grams) || 0;
+  const raciones = Math.max(1, Math.round(grams / GRAMOS_POR_RACION));
+  await dispenseGrams(raciones * GRAMOS_POR_RACION);
+  res.json({ status: 'ok', raciones, grams: raciones * GRAMOS_POR_RACION });
+});
+
+// Giro por tiempo del dosificador vía ESP32 (comando 7). direction 1=horario / 0=antihorario.
+app.post('/dosifier/time', async (req, res) => {
+  const ms = Number(req.body.ms) || 0;
+  const horario = String(req.body.direction) !== '0';
+  if (ms <= 0) return res.status(400).json({ status: 'error', message: 'ms requerido' });
+  try {
+    const out = await esp32Cmd(`7 ${ms} ${horario ? 1 : 0}`, Math.min(ms, 10000) + 5000);
+    res.json({ status: 'ok', ms, horario, respuesta: (out || '').trim() });
+  } catch (e) {
+    res.status(500).json({ status: 'error', message: 'ESP32: ' + e.message });
+  }
+});
+
+// Tiempo ajustable para 12g (1 porcion) del dosificador
+const DOSIFIER_MS_12G_DEFAULT = 516; // 12g = 120° * 4.3 ms/grado
+let dosifierMs12g = loadSetting('dosifier_ms_12g', DOSIFIER_MS_12G_DEFAULT);
+app.get('/dosifier/params', (req, res) => res.json({ ms_12g: dosifierMs12g }));
+app.post('/dosifier/params', (req, res) => {
+  const ms = Number(req.body?.ms_12g);
+  if (!(ms >= 50 && ms <= 5000)) return res.status(400).json({ status: 'error', message: 'ms_12g entre 50 y 5000' });
+  dosifierMs12g = Math.round(ms);
+  saveSetting('dosifier_ms_12g', dosifierMs12g);
+  res.json({ status: 'ok', ms_12g: dosifierMs12g });
 });
 
 // Feed
 app.post('/feed', async (req, res) => {
-  const { portions = 18, humidify = false } = req.body;
+  const { portions = 12, humidify = false } = req.body;
   let source = 'manual';
 
   // Verificar presencia si está activado
   if (presenceState.feed_only_with_presence) {
     const presence = await fetchPresence('/status');
-    if (!presence || !presence.presence_confirmed) {
+    if (!cameraEnabled || !presence || !presence.monitoring || presence.stale || !presence.presence_confirmed) {
       return res.json({ status: 'rejected', message: 'No se detectó mascota cerca' });
     }
     source = 'presencia';
@@ -498,6 +652,11 @@ app.get('/sequence_status', (req, res) => res.json({
 
 // Video en vivo: proxy del stream MJPEG fluido del detector
 app.get('/video_feed', (req, res) => {
+  if (!cameraEnabled) {
+    res.set('Content-Type', 'image/svg+xml');
+    res.send(CAMERA_OFF_SVG);
+    return;
+  }
   const up = http.get('http://127.0.0.1:5001/video_stream', (pres) => {
     if (pres.statusCode !== 200) {
       res.status(503).send('Camara no conectada');
@@ -507,40 +666,51 @@ app.get('/video_feed', (req, res) => {
     res.set('Cache-Control', 'no-cache');
     pres.pipe(res);
   });
+  const stream = { up, res };
+  activeCameraStreams.add(stream);
   up.on('error', () => { try { res.status(503).send('Camara no conectada'); } catch { /* ya respondido */ } });
-  req.on('close', () => { try { up.destroy(); } catch { /* ignorar */ } });
+  res.on('close', () => { activeCameraStreams.delete(stream); try { up.destroy(); } catch { /* ignorar */ } });
+});
+
+app.get('/api/camera', async (req, res) => res.json(await getCameraState()));
+app.post('/api/camera', async (req, res) => {
+  const { enabled } = req.body || {};
+  if (typeof enabled !== 'boolean') return res.status(400).json({ status: 'error', message: 'enabled requerido' });
+  const result = await setCameraEnabled(enabled);
+  res.status(result.error ? 503 : 200).json(result);
 });
 
 // Last feed
 app.get('/api/last-feed', (req, res) => {
   try {
     const row = db.prepare('SELECT portions, humidify FROM last_feed WHERE id = 1').get();
-    res.json(row || { portions: 18, humidify: false });
-  } catch { res.json({ portions: 18, humidify: false }); }
+    res.json(row || { portions: 12, humidify: false });
+  } catch { res.json({ portions: 12, humidify: false }); }
 });
 app.post('/api/last-feed', (req, res) => {
   try {
-    const { portions = 18, humidify = false } = req.body;
+    const { portions = 12, humidify = false } = req.body;
     db.prepare('INSERT OR REPLACE INTO last_feed (id, portions, humidify) VALUES (1, ?, ?)').run(portions, humidify ? 1 : 0);
     res.json({ status: 'ok' });
   } catch (e) { res.status(500).json({ status: 'error', message: e.message }); }
 });
 
-// Faja (stubs)
-app.post('/faja/manual', (req, res) => res.json({ status: 'ok' }));
-app.post('/faja/stop', (req, res) => res.json({ status: 'ok' }));
-app.post('/faja/setup', (req, res) => res.json({ status: 'ok', message: 'Pendiente' }));
-app.post('/faja/cycle', async (req, res) => { await runCleaning(); res.json({ status: 'ok', message: 'Ciclo de limpieza de faja ejecutado' }); });
-app.get('/faja/busy', (req, res) => res.json({ busy: state.cleaning }));
-app.get('/faja/params', (req, res) => res.json({ pulsos_seteo_m2: 1800, pulsos_avance: 600, pulsos_retorno: 1700 }));
-app.post('/faja/params', (req, res) => res.json({ status: 'ok', updated: req.body }));
-app.get('/faja/status', (req, res) => res.json({ encoder_m1: 0, encoder_m2: 0 }));
-app.post('/faja/reset-encoders', (req, res) => res.json({ status: 'ok' }));
+// Faja: prueba con dirección, tiempo y PWM configurables
+app.post('/faja/test', async (req, res) => {
+  const { direction, duration_ms, duty_a, duty_b } = req.body || {};
+  if (!['forward', 'backward'].includes(direction)) {
+    return res.status(400).json({ status: 'error', message: 'direction: forward | backward' });
+  }
+  const result = await fajaTest({ direction, duration_ms, duty_a, duty_b });
+  res.json({ status: 'ok', ...result });
+});
+app.post('/faja/stop', (req, res) => { fajaStop(); res.json({ status: 'ok' }); });
+app.get('/faja/busy', (req, res) => res.json({ busy: fajaBusy() }));
 
 // Schedules
 app.get('/schedules', (req, res) => res.json(loadSchedules()));
 app.post('/schedules', (req, res) => {
-  const { time, portions = 18, humidify = false } = req.body;
+  const { time, portions = 12, humidify = false } = req.body;
   const [hour, minute] = time.split(':').map(Number);
   const id = Date.now().toString(36);
   try {
@@ -656,11 +826,12 @@ const presenceAutoFeed = {
 
 function fetchPresence(path) {
   return new Promise((resolve) => {
-    http.get(PRESENCE_URL + path, (res) => {
+    const req = http.get(PRESENCE_URL + path, (res) => {
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => { try { resolve(JSON.parse(data)); } catch { resolve(null); } });
     }).on('error', () => resolve(null));
+    req.setTimeout(path === '/start' ? 5000 : 2000, () => { req.destroy(); resolve(null); });
   });
 }
 
@@ -681,9 +852,9 @@ async function checkPresenceFeed() {
     return;
   }
   const status = await fetchPresence('/status');
-  if (!status || !status.presence_confirmed) return;
+  if (!cameraEnabled || !status || !status.monitoring || !status.automation_allowed || status.stale || !status.presence_confirmed) return;
   presenceAutoFeed.last_fire_at = now;
-  let portions = 18, humidify = false;
+  let portions = 12, humidify = false;
   try {
     const row = db.prepare('SELECT portions, humidify FROM last_feed WHERE id = 1').get();
     if (row) { portions = row.portions; humidify = !!row.humidify; }
@@ -700,16 +871,25 @@ function armCleaning() {
   console.log('[LIMPIEZA] Armada: se limpiará cuando la mascota se retire');
 }
 
-// Ciclo de limpieza de faja transportadora (stub hasta conectar L298N)
+// Ciclo de limpieza de faja transportadora (L298N): adelante con M1, retorno con M2
 async function runCleaning() {
   if (state.cleaning) return;
   state.cleaning = true;
   broadcast();
-  console.log('[LIMPIEZA] Iniciando ciclo de faja...');
-  await new Promise((r) => setTimeout(r, 8000));
-  state.cleaning = false;
-  broadcast();
-  console.log('[LIMPIEZA] Ciclo de faja completado');
+  console.log(`[LIMPIEZA] Iniciando ciclo de faja (adelante ${FAJA_ADELANTE_MS}ms, retorno ${FAJA_RETORNO_MS}ms)...`);
+  try {
+    fajaAdelante();
+    await new Promise((r) => setTimeout(r, FAJA_ADELANTE_MS));
+    fajaRetorno();
+    await new Promise((r) => setTimeout(r, FAJA_RETORNO_MS));
+  } catch (e) {
+    console.error('[LIMPIEZA] Error:', e.message);
+  } finally {
+    fajaStop();
+    state.cleaning = false;
+    broadcast();
+    console.log('[LIMPIEZA] Ciclo de faja completado');
+  }
 }
 
 // Verifica cada 5s: mascota retirada (+ espera) -> ejecuta limpieza
@@ -718,7 +898,7 @@ async function checkPresenceClean() {
   if (state.sequence_running || state.cleaning) return;
   const now = Date.now();
   const status = await fetchPresence('/status');
-  if (!status || !status.monitoring) return;
+  if (!cameraEnabled || !status || !status.monitoring || !status.automation_allowed || status.stale) return;
   if (status.presence_confirmed) {
     presClean.departedAt = 0;
     return;
@@ -744,18 +924,23 @@ app.get('/api/presence', async (req, res) => {
     auto_feed_remaining_s = Math.max(0, Math.ceil((presenceAutoFeed.cooldown_min * 60000 - waited) / 1000));
   }
   res.json({
-    camera: status.camera,
+    camera: cameraEnabled && status.camera,
     monitoring: status.monitoring,
     detected: status.presence_confirmed,
     presence_seconds: status.presence_seconds,
     threshold: status.presence_threshold,
     last_detection: status.last_detection,
+    observation_only: status.observation_only !== false,
+    detector_error: status.detector_error || null,
+    cat_detected: !!status.cat_detected,
+    stale: !!status.stale,
     auto_feed_enabled: presenceAutoFeed.enabled,
     auto_feed_remaining_s
   });
 });
 
 app.post('/api/presence/start', async (req, res) => {
+  if (!cameraEnabled) return res.status(409).json({ error: 'Primero enciende la cámara' });
   const result = await fetchPresence('/start');
   presenceState.enabled = true;
   res.json(result || { error: 'Detector no disponible' });
@@ -906,18 +1091,9 @@ wss.on('connection', (ws) => {
 });
 
 // ─── Start ─────────────────────────────────────────────────────────
-console.log('=== SmartPetFeeder v2.3 (Node.js + PCA9685 + lgpio) ===');
+console.log('=== SmartPetFeeder v2.1 (Node.js + ESP32 + lgpio) ===');
 
-const i2cOk = pca9685Init();
 const gpioOk = gpioInit();
-
-if (i2cOk) {
-  setAngle(CH_SUPERIOR, ABIERTO);
-  setAngle(CH_INFERIOR, CERRADO);
-  setThrottle(CH_DOSIFICADOR, 0);
-} else {
-  console.log('[WARN] PCA9685 no detectado - servos deshabilitados');
-}
 
 setInterval(checkSchedules, 15000);
 checkSchedules();
@@ -928,24 +1104,25 @@ checkPresenceClean();
 setInterval(auth.cleanupSessions, 60 * 60 * 1000);
 auth.cleanupSessions();
 
-server.listen(PORT, '0.0.0.0', () => {
+// A controller restart also revokes consent if the camera service stayed up.
+setCameraEnabled(false).finally(() => server.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor: http://localhost:${PORT}`);
   console.log(`Red:      http://192.168.0.251:${PORT}`);
-  console.log(`I2C:  ${i2cOk ? 'OK' : 'FALLIDO'}`);
   console.log(`GPIO: ${gpioOk ? 'OK' : 'FALLIDO'}`);
-});
+}));
 
 process.on('SIGINT', () => {
   console.log('\n[Cierre] Limpiando...');
   setRelay(false);
+  fajaStop();
   stopDispenser();
-  if (i2cReady && i2cHandle !== null) lgpio.i2cClose(i2cHandle);
   if (gpioHandle) lgpio.gpiochipClose(gpioHandle);
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   setRelay(false);
+  fajaStop();
   stopDispenser();
   process.exit(0);
 });
